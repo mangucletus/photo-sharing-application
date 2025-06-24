@@ -1,0 +1,156 @@
+name: Deploy Photo Sharing App
+
+on:
+  push:
+    branches: [ main, develop ]
+  pull_request:
+    branches: [ main ]
+
+env:
+  AWS_REGION: eu-west-1
+  TF_VERSION: 1.5.0
+
+jobs:
+  terraform:
+    name: 'Terraform Plan & Apply'
+    runs-on: ubuntu-latest
+    environment: production
+    
+    # Use the Bash shell regardless whether the GitHub Actions runner is ubuntu-latest, macos-latest, or windows-latest
+    defaults:
+      run:
+        shell: bash
+        working-directory: ./terraform
+
+    steps:
+    # Checkout the repository to the GitHub Actions runner
+    - name: Checkout
+      uses: actions/checkout@v4
+
+    # Configure AWS credentials
+    - name: Configure AWS credentials
+      uses: aws-actions/configure-aws-credentials@v4
+      with:
+        aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+        aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+        aws-region: ${{ env.AWS_REGION }}
+
+    # Install the latest version of Terraform CLI
+    - name: Setup Terraform
+      uses: hashicorp/setup-terraform@v3
+      with:
+        terraform_version: ${{ env.TF_VERSION }}
+        terraform_wrapper: false
+
+    # Initialize a new or existing Terraform working directory by creating initial files, loading any remote state, downloading modules, etc.
+    - name: Terraform Init
+      run: |
+        # Update backend configuration with the correct bucket name
+        sed -i 's/your-terraform-state-bucket-name/${{ secrets.TF_STATE_BUCKET }}/g' main.tf
+        terraform init
+
+    # Checks that all Terraform configuration files adhere to a canonical format
+    - name: Terraform Format Check
+      run: terraform fmt -check -recursive
+      continue-on-error: true
+
+    # Validates the configuration files in a directory
+    - name: Terraform Validate
+      run: terraform validate
+
+    # Generates an execution plan for Terraform
+    - name: Terraform Plan
+      run: |
+        terraform plan -input=false -var-file="terraform.tfvars" -out=tfplan
+      env:
+        TF_VAR_project_name: photo-sharing-app
+        TF_VAR_environment: ${{ github.ref == 'refs/heads/main' && 'prod' || 'dev' }}
+
+    # Apply the Terraform plan (only on main branch)
+    - name: Terraform Apply
+      if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+      run: terraform apply -auto-approve tfplan
+
+    # Get Terraform outputs
+    - name: Get Terraform Outputs
+      if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+      id: terraform-outputs
+      run: |
+        echo "images_bucket=$(terraform output -raw images_bucket_name)" >> $GITHUB_OUTPUT
+        echo "thumbnails_bucket=$(terraform output -raw thumbnails_bucket_name)" >> $GITHUB_OUTPUT
+        echo "frontend_bucket=$(terraform output -raw frontend_bucket_name)" >> $GITHUB_OUTPUT
+        echo "api_gateway_url=$(terraform output -raw api_gateway_url)" >> $GITHUB_OUTPUT
+        echo "lambda_function_name=$(terraform output -raw lambda_function_name)" >> $GITHUB_OUTPUT
+
+    # Package and deploy Lambda function
+    - name: Deploy Lambda Function
+      if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+      run: |
+        cd ../lambda
+        
+        # Install dependencies
+        pip install -r requirements.txt -t .
+        
+        # Create deployment package
+        zip -r ../lambda_function.zip . -x "*.pyc" "__pycache__/*"
+        
+        # Update Lambda function code
+        aws lambda update-function-code \
+          --function-name ${{ steps.terraform-outputs.outputs.lambda_function_name }} \
+          --zip-file fileb://../lambda_function.zip \
+          --region ${{ env.AWS_REGION }}
+
+    # Deploy Frontend
+    - name: Deploy Frontend
+      if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+      run: |
+        cd ../frontend
+        
+        # Replace placeholders in index.html with actual values
+        sed -i "s/{{IMAGES_BUCKET}}/${{ steps.terraform-outputs.outputs.images_bucket }}/g" index.html
+        sed -i "s/{{THUMBNAILS_BUCKET}}/${{ steps.terraform-outputs.outputs.thumbnails_bucket }}/g" index.html
+        sed -i "s|{{API_GATEWAY_URL}}|${{ steps.terraform-outputs.outputs.api_gateway_url }}|g" index.html
+        
+        # Upload to S3
+        aws s3 sync . s3://${{ steps.terraform-outputs.outputs.frontend_bucket }}/ \
+          --delete \
+          --region ${{ env.AWS_REGION }}
+
+    # Output deployment information
+    - name: Deployment Summary
+      if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+      run: |
+        echo "## Deployment Complete! 🎉" >> $GITHUB_STEP_SUMMARY
+        echo "" >> $GITHUB_STEP_SUMMARY
+        echo "### 📊 Infrastructure Deployed:" >> $GITHUB_STEP_SUMMARY
+        echo "- **Images Bucket**: ${{ steps.terraform-outputs.outputs.images_bucket }}" >> $GITHUB_STEP_SUMMARY
+        echo "- **Thumbnails Bucket**: ${{ steps.terraform-outputs.outputs.thumbnails_bucket }}" >> $GITHUB_STEP_SUMMARY
+        echo "- **Frontend Bucket**: ${{ steps.terraform-outputs.outputs.frontend_bucket }}" >> $GITHUB_STEP_SUMMARY
+        echo "- **Lambda Function**: ${{ steps.terraform-outputs.outputs.lambda_function_name }}" >> $GITHUB_STEP_SUMMARY
+        echo "" >> $GITHUB_STEP_SUMMARY
+        echo "### 🌐 Access Your App:" >> $GITHUB_STEP_SUMMARY
+        echo "- **Website**: [Open App](http://${{ steps.terraform-outputs.outputs.frontend_bucket }}.s3-website.${{ env.AWS_REGION }}.amazonaws.com/)" >> $GITHUB_STEP_SUMMARY
+        echo "- **API Gateway**: ${{ steps.terraform-outputs.outputs.api_gateway_url }}" >> $GITHUB_STEP_SUMMARY
+
+  security-scan:
+    name: 'Security Scan'
+    runs-on: ubuntu-latest
+    if: github.event_name == 'pull_request'
+    
+    steps:
+    - name: Checkout
+      uses: actions/checkout@v4
+      
+    - name: Run Terraform Security Scan
+      uses: aquasecurity/trivy-action@master
+      with:
+        scan-type: 'config'
+        scan-ref: './terraform'
+        format: 'sarif'
+        output: 'trivy-results.sarif'
+        
+    - name: Upload Trivy scan results to GitHub Security tab
+      uses: github/codeql-action/upload-sarif@v2
+      if: always()
+      with:
+        sarif_file: 'trivy-results.sarif'
