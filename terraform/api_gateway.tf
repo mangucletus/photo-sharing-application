@@ -28,6 +28,11 @@ resource "aws_api_gateway_method" "get_image" {
   resource_id   = aws_api_gateway_resource.image.id
   http_method   = "GET"
   authorization = "NONE"
+  
+  # Declare the path parameter here
+  request_parameters = {
+    "method.request.path.image" = true
+  }
 }
 
 # API Gateway Integration with S3
@@ -41,8 +46,8 @@ resource "aws_api_gateway_integration" "s3_integration" {
   uri                    = "arn:aws:apigateway:${data.aws_region.current.name}:s3:path/${aws_s3_bucket.thumbnails.bucket}/{image}"
   credentials            = aws_iam_role.api_gateway_s3_role.arn
 
+  # Map the method parameter to integration parameter
   request_parameters = {
-    "method.request.path.image" = true
     "integration.request.path.image" = "method.request.path.image"
   }
 }
