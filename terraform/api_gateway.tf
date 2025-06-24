@@ -42,6 +42,7 @@ resource "aws_api_gateway_integration" "s3_integration" {
   credentials            = aws_iam_role.api_gateway_s3_role.arn
 
   request_parameters = {
+    "method.request.path.image" = true
     "integration.request.path.image" = "method.request.path.image"
   }
 }
