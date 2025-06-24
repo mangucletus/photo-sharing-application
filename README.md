@@ -1,4 +1,4 @@
-# Serverless Photo Sharing Application
+# 📸 Serverless Photo Sharing Application
 
 [![Deploy Photo Sharing App](https://github.com/your-username/photo-sharing-app/actions/workflows/deploy.yml/badge.svg)](https://github.com/your-username/photo-sharing-app/actions/workflows/deploy.yml)
 [![AWS](https://img.shields.io/badge/AWS-%23FF9900.svg?style=flat&logo=amazon-aws&logoColor=white)](https://aws.amazon.com/)
@@ -6,7 +6,7 @@
 
 A complete serverless photo sharing application built with AWS services, managed through Infrastructure as Code (Terraform), and deployed via GitHub Actions CI/CD pipeline. Upload images, get automatic thumbnail generation, and share photos through a modern web interface.
 
-##  Table of Contents
+## 📋 Table of Contents
 
 - [Architecture Overview](#-architecture-overview)
 - [System Flow](#-system-flow)
@@ -21,9 +21,10 @@ A complete serverless photo sharing application built with AWS services, managed
 - [Security](#-security)
 - [Cost Analysis](#-cost-analysis)
 - [Development](#-development)
+- [Contributing](#-contributing)
 - [FAQ](#-faq)
 
-##  Architecture Overview
+## 🏗️ Architecture Overview
 
 ### High-Level Architecture Diagram
 
@@ -274,7 +275,7 @@ Your AWS user/role needs the following permissions:
 
 1. **Clone Repository**:
    ```bash
-   git clone https://github.com/mangucletus/photo-sharing-app.git
+   git clone https://github.com/your-username/photo-sharing-app.git
    cd photo-sharing-app
    ```
 
@@ -350,7 +351,12 @@ photo-sharing-app/
 │   └── 📄 index.html                  # Single-page application
 ├── 📁 scripts/                        # Utility scripts
 │   └── 📄 deploy-frontend.sh          # Frontend deployment script
+├── 📁 docs/                           # Documentation
+│   ├── 📄 ARCHITECTURE.md             # Detailed architecture docs
+│   ├── 📄 API.md                      # API documentation
+│   └── 📄 TROUBLESHOOTING.md          # Common issues and solutions
 ├── 📄 README.md                       # This file
+├── 📄 LICENSE                         # MIT license
 └── 📄 .gitignore                      # Git ignore rules
 ```
 
@@ -1345,9 +1351,48 @@ A: Modify the Lambda function to use PIL filters. See development examples.
 **Q: Can I support multiple thumbnail sizes?**
 A: Yes, modify the Lambda function to create multiple sizes. See customization examples.
 
+## 📄 License
+
+MIT License
+
+Copyright (c) 2024 Your Name
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+
+## 🤝 Contributing
+
+We welcome contributions! Please see our [Contributing Guidelines](CONTRIBUTING.md) for details.
+
+### Contributors
+
+- Your Name ([@yourusername](https://github.com/yourusername)) - Initial work
+
+## 📞 Support
+
+- **Documentation**: Check this README and the `docs/` folder
+- **Issues**: Open a GitHub issue for bugs or feature requests
+- **Discussions**: Use GitHub Discussions for questions
+- **Email**: your-email@example.com (for private inquiries)
 
 ## 🔗 Links
 
+- **🚀 Live Application**: [Photo Sharing App](http://photo-sharing-app-prod-frontend-1xbg8k73.s3-website.eu-west-1.amazonaws.com/)
 - [AWS Documentation](https://docs.aws.amazon.com/)
 - [Terraform Documentation](https://terraform.io/docs)
 - [GitHub Actions Documentation](https://docs.github.com/en/actions)
