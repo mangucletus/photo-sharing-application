@@ -1,3 +1,5 @@
+# terraform/s3.tf - Updated with CORS and proper permissions
+
 # S3 bucket for original images
 resource "aws_s3_bucket" "images" {
   bucket = "${local.resource_prefix}-images-${local.bucket_suffix}"
@@ -29,6 +31,16 @@ resource "aws_s3_bucket_versioning" "thumbnails" {
   }
 }
 
+# Public access configuration for images bucket (for uploads)
+resource "aws_s3_bucket_public_access_block" "images" {
+  bucket = aws_s3_bucket.images.id
+
+  block_public_acls       = false
+  block_public_policy     = false
+  ignore_public_acls      = false
+  restrict_public_buckets = false
+}
+
 # Public access configuration for thumbnails bucket
 resource "aws_s3_bucket_public_access_block" "thumbnails" {
   bucket = aws_s3_bucket.thumbnails.id
@@ -47,6 +59,30 @@ resource "aws_s3_bucket_public_access_block" "frontend" {
   block_public_policy     = false
   ignore_public_acls      = false
   restrict_public_buckets = false
+}
+
+# Bucket policy for images - allow public write for uploads
+resource "aws_s3_bucket_policy" "images" {
+  bucket = aws_s3_bucket.images.id
+  depends_on = [aws_s3_bucket_public_access_block.images]
+
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      {
+        Sid       = "PublicUploadGetObject"
+        Effect    = "Allow"
+        Principal = "*"
+        Action    = ["s3:PutObject", "s3:GetObject"]
+        Resource  = "${aws_s3_bucket.images.arn}/*"
+        Condition = {
+          StringEquals = {
+            "s3:x-amz-acl" = "public-read"
+          }
+        }
+      }
+    ]
+  })
 }
 
 # Bucket policy for thumbnails - allow public read
@@ -100,14 +136,28 @@ resource "aws_s3_bucket_website_configuration" "frontend" {
   }
 }
 
-# CORS configuration for images bucket
+# CORS configuration for images bucket - FIXED
 resource "aws_s3_bucket_cors_configuration" "images" {
   bucket = aws_s3_bucket.images.id
 
   cors_rule {
     allowed_headers = ["*"]
-    allowed_methods = ["PUT", "POST", "GET"]
+    allowed_methods = ["PUT", "POST", "GET", "HEAD"]
     allowed_origins = ["*"]
+    expose_headers  = ["ETag"]
+    max_age_seconds = 3000
+  }
+}
+
+# CORS configuration for thumbnails bucket - NEW
+resource "aws_s3_bucket_cors_configuration" "thumbnails" {
+  bucket = aws_s3_bucket.thumbnails.id
+
+  cors_rule {
+    allowed_headers = ["*"]
+    allowed_methods = ["GET", "HEAD"]
+    allowed_origins = ["*"]
+    expose_headers  = ["ETag"]
     max_age_seconds = 3000
   }
 }

@@ -79,11 +79,14 @@ jobs:
         echo "images_bucket=$(terraform output -raw images_bucket_name)" >> $GITHUB_OUTPUT
         echo "thumbnails_bucket=$(terraform output -raw thumbnails_bucket_name)" >> $GITHUB_OUTPUT
         echo "frontend_bucket=$(terraform output -raw frontend_bucket_name)" >> $GITHUB_OUTPUT
+        echo "dynamodb_table=$(terraform output -raw dynamodb_table_name)" >> $GITHUB_OUTPUT
         echo "api_gateway_url=$(terraform output -raw api_gateway_url)" >> $GITHUB_OUTPUT
         echo "lambda_function_name=$(terraform output -raw lambda_function_name)" >> $GITHUB_OUTPUT
+        echo "upload_handler_name=$(terraform output -raw upload_handler_function_name)" >> $GITHUB_OUTPUT
+        echo "list_handler_name=$(terraform output -raw list_handler_function_name)" >> $GITHUB_OUTPUT
 
-    # Package and deploy Lambda function
-    - name: Deploy Lambda Function
+    # Package and deploy Lambda functions
+    - name: Deploy Lambda Functions
       if: github.ref == 'refs/heads/main' && github.event_name == 'push'
       run: |
         cd ../lambda
@@ -94,10 +97,38 @@ jobs:
         # Create deployment package
         zip -r ../lambda_function.zip . -x "*.pyc" "__pycache__/*"
         
-        # Update Lambda function code
+        # Update image resizer Lambda function code
         aws lambda update-function-code \
           --function-name ${{ steps.terraform-outputs.outputs.lambda_function_name }} \
           --zip-file fileb://../lambda_function.zip \
+          --region ${{ env.AWS_REGION }}
+        
+        # Update upload handler Lambda function code
+        aws lambda update-function-code \
+          --function-name ${{ steps.terraform-outputs.outputs.upload_handler_name }} \
+          --zip-file fileb://../lambda_function.zip \
+          --region ${{ env.AWS_REGION }}
+        
+        # Update list handler Lambda function code
+        aws lambda update-function-code \
+          --function-name ${{ steps.terraform-outputs.outputs.list_handler_name }} \
+          --zip-file fileb://../lambda_function.zip \
+          --region ${{ env.AWS_REGION }}
+
+        # Update environment variables for Lambda functions
+        aws lambda update-function-configuration \
+          --function-name ${{ steps.terraform-outputs.outputs.lambda_function_name }} \
+          --environment Variables="{THUMBNAIL_BUCKET=${{ steps.terraform-outputs.outputs.thumbnails_bucket }},THUMBNAIL_SIZE=150,DYNAMODB_TABLE=${{ steps.terraform-outputs.outputs.dynamodb_table }}}" \
+          --region ${{ env.AWS_REGION }}
+        
+        aws lambda update-function-configuration \
+          --function-name ${{ steps.terraform-outputs.outputs.upload_handler_name }} \
+          --environment Variables="{IMAGES_BUCKET=${{ steps.terraform-outputs.outputs.images_bucket }},THUMBNAIL_BUCKET=${{ steps.terraform-outputs.outputs.thumbnails_bucket }},DYNAMODB_TABLE=${{ steps.terraform-outputs.outputs.dynamodb_table }}}" \
+          --region ${{ env.AWS_REGION }}
+        
+        aws lambda update-function-configuration \
+          --function-name ${{ steps.terraform-outputs.outputs.list_handler_name }} \
+          --environment Variables="{THUMBNAIL_BUCKET=${{ steps.terraform-outputs.outputs.thumbnails_bucket }},DYNAMODB_TABLE=${{ steps.terraform-outputs.outputs.dynamodb_table }}}" \
           --region ${{ env.AWS_REGION }}
 
     # Deploy Frontend
@@ -126,7 +157,10 @@ jobs:
         echo "- **Images Bucket**: ${{ steps.terraform-outputs.outputs.images_bucket }}" >> $GITHUB_STEP_SUMMARY
         echo "- **Thumbnails Bucket**: ${{ steps.terraform-outputs.outputs.thumbnails_bucket }}" >> $GITHUB_STEP_SUMMARY
         echo "- **Frontend Bucket**: ${{ steps.terraform-outputs.outputs.frontend_bucket }}" >> $GITHUB_STEP_SUMMARY
-        echo "- **Lambda Function**: ${{ steps.terraform-outputs.outputs.lambda_function_name }}" >> $GITHUB_STEP_SUMMARY
+        echo "- **DynamoDB Table**: ${{ steps.terraform-outputs.outputs.dynamodb_table }}" >> $GITHUB_STEP_SUMMARY
+        echo "- **Image Resizer Lambda**: ${{ steps.terraform-outputs.outputs.lambda_function_name }}" >> $GITHUB_STEP_SUMMARY
+        echo "- **Upload Handler Lambda**: ${{ steps.terraform-outputs.outputs.upload_handler_name }}" >> $GITHUB_STEP_SUMMARY
+        echo "- **List Handler Lambda**: ${{ steps.terraform-outputs.outputs.list_handler_name }}" >> $GITHUB_STEP_SUMMARY
         echo "" >> $GITHUB_STEP_SUMMARY
         echo "### 🌐 Access Your App:" >> $GITHUB_STEP_SUMMARY
         echo "- **Website**: [Open App](http://${{ steps.terraform-outputs.outputs.frontend_bucket }}.s3-website.${{ env.AWS_REGION }}.amazonaws.com/)" >> $GITHUB_STEP_SUMMARY

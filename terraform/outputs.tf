@@ -1,3 +1,5 @@
+# terraform/outputs.tf - Updated with DynamoDB table
+
 # Output important resource information
 output "images_bucket_name" {
   description = "Name of the S3 bucket for original images"
@@ -14,6 +16,11 @@ output "frontend_bucket_name" {
   value       = aws_s3_bucket.frontend.bucket
 }
 
+output "dynamodb_table_name" {
+  description = "Name of the DynamoDB table for image metadata"
+  value       = aws_dynamodb_table.images_metadata.name
+}
+
 output "frontend_url" {
   description = "URL of the frontend website"
   value       = "http://${aws_s3_bucket_website_configuration.frontend.website_endpoint}"
@@ -25,8 +32,18 @@ output "api_gateway_url" {
 }
 
 output "lambda_function_name" {
-  description = "Name of the Lambda function"
+  description = "Name of the image resizer Lambda function"
   value       = aws_lambda_function.image_resizer.function_name
+}
+
+output "upload_handler_function_name" {
+  description = "Name of the upload handler Lambda function"
+  value       = aws_lambda_function.upload_handler.function_name
+}
+
+output "list_handler_function_name" {
+  description = "Name of the list handler Lambda function"
+  value       = aws_lambda_function.list_handler.function_name
 }
 
 output "images_bucket_upload_url" {
@@ -37,4 +54,14 @@ output "images_bucket_upload_url" {
 output "thumbnails_bucket_url" {
   description = "Base URL for accessing thumbnails"
   value       = "https://${aws_s3_bucket.thumbnails.bucket}.s3.amazonaws.com"
+}
+
+output "upload_endpoint" {
+  description = "API Gateway upload endpoint"
+  value       = "https://${aws_api_gateway_rest_api.photo_api.id}.execute-api.${data.aws_region.current.name}.amazonaws.com/${var.environment}/images/upload"
+}
+
+output "list_endpoint" {
+  description = "API Gateway list endpoint"
+  value       = "https://${aws_api_gateway_rest_api.photo_api.id}.execute-api.${data.aws_region.current.name}.amazonaws.com/${var.environment}/images/list"
 }

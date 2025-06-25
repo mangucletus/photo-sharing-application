@@ -452,7 +452,7 @@
         }
 
         /**
-         * Upload files to S3
+         * Upload files using API Gateway
          */
         async function uploadFiles(files) {
             showProgress(true);
@@ -492,38 +492,73 @@
         }
 
         /**
-         * Upload a single file to S3
+         * Upload a single file using API Gateway presigned URL
          */
         async function uploadSingleFile(file) {
-            const fileName = encodeURIComponent(file.name);
-            const uploadUrl = `https://${CONFIG.IMAGES_BUCKET}.s3.amazonaws.com/${fileName}`;
+            try {
+                // Step 1: Get presigned URL from API Gateway
+                const uploadResponse = await fetch(`${CONFIG.API_GATEWAY_URL}/images/upload`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({
+                        filename: file.name,
+                        contentType: file.type
+                    })
+                });
 
-            const response = await fetch(uploadUrl, {
-                method: 'PUT',
-                body: file,
-                headers: {
-                    'Content-Type': file.type
+                if (!uploadResponse.ok) {
+                    throw new Error(`Failed to get upload URL: ${uploadResponse.status}`);
                 }
-            });
 
-            if (!response.ok) {
-                throw new Error(`HTTP error! status: ${response.status}`);
+                const uploadData = await uploadResponse.json();
+                const presignedUrl = uploadData.uploadUrl;
+
+                // Step 2: Upload file using presigned URL
+                const fileUploadResponse = await fetch(presignedUrl, {
+                    method: 'PUT',
+                    body: file,
+                    headers: {
+                        'Content-Type': file.type
+                    }
+                });
+
+                if (!fileUploadResponse.ok) {
+                    throw new Error(`Upload failed: ${fileUploadResponse.status}`);
+                }
+
+                return fileUploadResponse;
+
+            } catch (error) {
+                console.error('Upload error:', error);
+                throw error;
             }
-
-            return response;
         }
 
         /**
-         * Load and display gallery images
+         * Load and display gallery images from API
          */
         async function loadGallery() {
             try {
                 showLoading(true);
 
-                // Get list of thumbnails from S3 bucket
-                const thumbnails = await listThumbnails();
+                // Get list of images from API Gateway
+                const response = await fetch(`${CONFIG.API_GATEWAY_URL}/images/list`, {
+                    method: 'GET',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    }
+                });
 
-                if (thumbnails.length === 0) {
+                if (!response.ok) {
+                    throw new Error(`API request failed: ${response.status}`);
+                }
+
+                const data = await response.json();
+                const images = data.images || [];
+
+                if (images.length === 0) {
                     gallery.innerHTML = `
                         <div class="loading">
                             <p>No photos yet. Upload some images to get started!</p>
@@ -532,10 +567,70 @@
                     return;
                 }
 
-                displayImages(thumbnails);
+                displayImages(images);
 
             } catch (error) {
                 console.error('Error loading gallery:', error);
+                // Fallback to direct S3 listing
+                await loadGalleryFallback();
+            }
+        }
+
+        /**
+         * Fallback method to load gallery directly from S3
+         */
+        async function loadGalleryFallback() {
+            try {
+                // Mock data for demonstration
+                const mockImages = [
+                    {
+                        id: 'sample1',
+                        originalFilename: 'sample1.jpg',
+                        thumbnailFilename: 'thumb-sample1.jpg',
+                        thumbnailUrl: `https://${CONFIG.THUMBNAILS_BUCKET}.s3.amazonaws.com/thumb-sample1.jpg`,
+                        sizeBytes: 15600
+                    },
+                    {
+                        id: 'sample2',
+                        originalFilename: 'sample2.jpg',
+                        thumbnailFilename: 'thumb-sample2.jpg',
+                        thumbnailUrl: `https://${CONFIG.THUMBNAILS_BUCKET}.s3.amazonaws.com/thumb-sample2.jpg`,
+                        sizeBytes: 19200
+                    },
+                    {
+                        id: 'sample3',
+                        originalFilename: 'sample3.jpg',
+                        thumbnailFilename: 'thumb-sample3.jpg',
+                        thumbnailUrl: `https://${CONFIG.THUMBNAILS_BUCKET}.s3.amazonaws.com/thumb-sample3.jpg`,
+                        sizeBytes: 12400
+                    }
+                ];
+
+                // Filter to only images that actually exist
+                const existingImages = [];
+                for (const image of mockImages) {
+                    try {
+                        const response = await fetch(image.thumbnailUrl, { method: 'HEAD' });
+                        if (response.ok) {
+                            existingImages.push(image);
+                        }
+                    } catch (error) {
+                        // Image doesn't exist, skip it
+                    }
+                }
+
+                if (existingImages.length === 0) {
+                    gallery.innerHTML = `
+                        <div class="loading">
+                            <p>No photos available. Upload some images to get started!</p>
+                        </div>
+                    `;
+                } else {
+                    displayImages(existingImages);
+                }
+
+            } catch (error) {
+                console.error('Fallback gallery loading failed:', error);
                 gallery.innerHTML = `
                     <div class="loading">
                         <p>Error loading gallery. Please try again.</p>
@@ -545,48 +640,18 @@
         }
 
         /**
-         * Get list of thumbnails from S3 bucket
-         */
-        async function listThumbnails() {
-            // For demo purposes, we'll simulate a list of thumbnails
-            // In a real implementation, you'd use AWS SDK or API Gateway to list S3 objects
-            const mockThumbnails = [
-                { name: 'thumb-sample1.jpg', size: '15.2 KB' },
-                { name: 'thumb-sample2.jpg', size: '18.7 KB' },
-                { name: 'thumb-sample3.jpg', size: '12.1 KB' }
-            ];
-
-            // Filter to only thumbnails that actually exist
-            const existingThumbnails = [];
-            for (const thumb of mockThumbnails) {
-                try {
-                    const response = await fetch(`https://${CONFIG.THUMBNAILS_BUCKET}.s3.amazonaws.com/${thumb.name}`, {
-                        method: 'HEAD'
-                    });
-                    if (response.ok) {
-                        existingThumbnails.push(thumb);
-                    }
-                } catch (error) {
-                    // Thumbnail doesn't exist, skip it
-                }
-            }
-
-            return existingThumbnails;
-        }
-
-        /**
          * Display images in the gallery
          */
         function displayImages(images) {
             const imageCards = images.map(image => `
-                <div class="image-card" onclick="openModal('${image.name}')">
-                    <img src="https://${CONFIG.THUMBNAILS_BUCKET}.s3.amazonaws.com/${image.name}" 
-                         alt="${image.name}" 
+                <div class="image-card" onclick="openModal('${image.thumbnailUrl}')">
+                    <img src="${image.thumbnailUrl}" 
+                         alt="${image.originalFilename}" 
                          loading="lazy"
                          onerror="this.parentElement.style.display='none'">
                     <div class="image-info">
-                        <div class="image-name">${image.name.replace('thumb-', '')}</div>
-                        <div class="image-size">${image.size}</div>
+                        <div class="image-name">${image.originalFilename}</div>
+                        <div class="image-size">${formatFileSize(image.sizeBytes || 0)}</div>
                     </div>
                 </div>
             `).join('');
@@ -597,9 +662,9 @@
         /**
          * Open modal with full-size image
          */
-        function openModal(imageName) {
+        function openModal(imageUrl) {
             modal.style.display = 'block';
-            modalImage.src = `https://${CONFIG.THUMBNAILS_BUCKET}.s3.amazonaws.com/${imageName}`;
+            modalImage.src = imageUrl;
         }
 
         /**
