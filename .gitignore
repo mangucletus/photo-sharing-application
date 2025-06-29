@@ -1,10 +1,6 @@
 # Photo Sharing App - .gitignore
-# Comprehensive gitignore for Terraform, Python, Node.js, and AWS projects
-
-#######################
-# Terraform Files
-#######################
-
+*node_modules
+node_modules
 # Local .terraform directories
 **/.terraform/*
 
