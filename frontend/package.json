@@ -1,47 +1,39 @@
 {
-    "name": "react-photo-sharing-app",
+    "name": "photo-sharing-app",
     "version": "1.0.0",
-    "description": "A React-based photo sharing application with AWS Amplify authentication",
-    "main": "index.html",
+    "private": true,
+    "dependencies": {
+      "@aws-amplify/ui-react": "^6.0.0",
+      "aws-amplify": "^6.0.0",
+      "react": "^18.2.0",
+      "react-dom": "^18.2.0",
+      "react-scripts": "5.0.1"
+    },
     "scripts": {
-      "dev": "npx live-server --port=3000 --host=localhost --cors",
-      "start": "npx live-server --port=3000 --host=localhost --cors",
-      "serve": "npx http-server -p 3000 -c-1 --cors",
-      "test-local": "node scripts/test-local.js",
-      "validate": "npx html-validate index.html",
-      "deploy": "aws s3 sync . s3://$(terraform -chdir=../terraform output -raw frontend_bucket_name)/ --delete --exclude node_modules --exclude package*.json --exclude scripts"
+      "start": "react-scripts start",
+      "build": "react-scripts build",
+      "test": "react-scripts test",
+      "eject": "react-scripts eject"
     },
-    "keywords": [
-      "react",
-      "aws",
-      "amplify",
-      "cognito",
-      "s3",
-      "photo-sharing",
-      "image-upload"
-    ],
-    "author": "Photo Sharing App Team",
-    "license": "MIT",
+    "eslintConfig": {
+      "extends": [
+        "react-app",
+        "react-app/jest"
+      ]
+    },
+    "browserslist": {
+      "production": [
+        ">0.2%",
+        "not dead",
+        "not op_mini all"
+      ],
+      "development": [
+        "last 1 chrome version",
+        "last 1 firefox version",
+        "last 1 safari version"
+      ]
+    },
     "devDependencies": {
-      "live-server": "^1.2.2",
-      "http-server": "^14.1.1",
-      "html-validate": "^8.7.4"
-    },
-    "dependencies": {},
-    "engines": {
-      "node": ">=16.0.0"
-    },
-    "browserslist": [
-      "> 1%",
-      "last 2 versions",
-      "not dead"
-    ],
-    "repository": {
-      "type": "git",
-      "url": "https://github.com/your-username/photo-sharing-app.git"
-    },
-    "bugs": {
-      "url": "https://github.com/your-username/photo-sharing-app/issues"
-    },
-    "homepage": "https://github.com/your-username/photo-sharing-app#readme"
+      "@types/node": "^20.0.0"
+    }
   }

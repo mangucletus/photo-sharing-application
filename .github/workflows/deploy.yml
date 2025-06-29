@@ -1,32 +1,23 @@
-name: Deploy React Photo Sharing App
+name: Deploy Photo Sharing App
 
 on:
   push:
-    branches: [ main, develop ]
+    branches: [ main ]
   pull_request:
     branches: [ main ]
 
 env:
-  AWS_REGION: eu-west-1
-  TF_VERSION: 1.5.0
+  AWS_REGION: us-east-1
+  TERRAFORM_VERSION: 1.5.0
 
 jobs:
-  terraform:
-    name: 'Terraform Plan & Apply'
+  deploy:
     runs-on: ubuntu-latest
-    environment: production
     
-    defaults:
-      run:
-        shell: bash
-        working-directory: ./terraform
-
     steps:
-    # Checkout the repository
-    - name: Checkout
+    - name: Checkout code
       uses: actions/checkout@v4
 
-    # Configure AWS credentials
     - name: Configure AWS credentials
       uses: aws-actions/configure-aws-credentials@v4
       with:
@@ -34,397 +25,92 @@ jobs:
         aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
         aws-region: ${{ env.AWS_REGION }}
 
-    # Install Terraform
     - name: Setup Terraform
       uses: hashicorp/setup-terraform@v3
       with:
-        terraform_version: ${{ env.TF_VERSION }}
+        terraform_version: ${{ env.TERRAFORM_VERSION }}
         terraform_wrapper: false
 
-    # Initialize Terraform
+    - name: Setup Node.js
+      uses: actions/setup-node@v4
+      with:
+        node-version: '18'
+        cache: 'npm'
+        cache-dependency-path: frontend/package-lock.json
+
+    - name: Setup Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: '3.9'
+
+    - name: Install Python dependencies for Lambda
+      run: |
+        mkdir -p lambda_package
+        pip install Pillow boto3 -t lambda_package/
+        cp lambda/lambda_function.py lambda_package/
+        cd lambda_package && zip -r ../image_resizer.zip .
+
     - name: Terraform Init
-      run: |
-        echo "🚀 Initializing Terraform..."
-        
-        # Update backend configuration with the correct bucket name
-        sed -i 's/cletus-photo-sharing-tfstate-bucket-2753/${{ secrets.TF_STATE_BUCKET }}/g' main.tf
-        
-        terraform init
-        
-        # Check current state
-        echo "📊 Current Terraform state:"
-        terraform state list || echo "No resources in state yet"
+      run: terraform init
+      working-directory: ./terraform
 
-    # Import existing resources to avoid conflicts
-    - name: Import Existing Resources
-      continue-on-error: true
-      run: |
-        echo "🔄 Importing existing AWS resources to avoid conflicts..."
-        
-        # Set variables
-        PROJECT_PREFIX="photo-sharing-app-${{ github.ref == 'refs/heads/main' && 'prod' || 'dev' }}"
-        
-        # Function to safely import a resource
-        import_resource() {
-            local resource_type=$1
-            local resource_name=$2
-            local aws_resource_id=$3
-            
-            echo "Checking ${resource_type}.${resource_name}..."
-            
-            # Check if resource already exists in state
-            if terraform state show "${resource_type}.${resource_name}" > /dev/null 2>&1; then
-                echo "✅ ${resource_type}.${resource_name} already in state"
-                return 0
-            fi
-            
-            # Try to import the resource
-            if terraform import "${resource_type}.${resource_name}" "${aws_resource_id}" > /dev/null 2>&1; then
-                echo "✅ Successfully imported ${resource_type}.${resource_name}"
-            else
-                echo "ℹ️  ${resource_type}.${resource_name} not found or not importable"
-            fi
-        }
-        
-        # Import S3 buckets
-        IMAGES_BUCKET=$(aws s3 ls | grep "${PROJECT_PREFIX}-images" | awk '{print $3}' | head -1 || echo "")
-        THUMBNAILS_BUCKET=$(aws s3 ls | grep "${PROJECT_PREFIX}-thumbnails" | awk '{print $3}' | head -1 || echo "")
-        FRONTEND_BUCKET=$(aws s3 ls | grep "${PROJECT_PREFIX}-frontend" | awk '{print $3}' | head -1 || echo "")
-        
-        if [ ! -z "$IMAGES_BUCKET" ]; then
-            import_resource "aws_s3_bucket" "images" "$IMAGES_BUCKET"
-        fi
-        
-        if [ ! -z "$THUMBNAILS_BUCKET" ]; then
-            import_resource "aws_s3_bucket" "thumbnails" "$THUMBNAILS_BUCKET"
-        fi
-        
-        if [ ! -z "$FRONTEND_BUCKET" ]; then
-            import_resource "aws_s3_bucket" "frontend" "$FRONTEND_BUCKET"
-        fi
-        
-        # Import DynamoDB table
-        TABLE_NAME="${PROJECT_PREFIX}-images-metadata"
-        if aws dynamodb describe-table --table-name "$TABLE_NAME" > /dev/null 2>&1; then
-            import_resource "aws_dynamodb_table" "images_metadata" "$TABLE_NAME"
-        fi
-        
-        # Import Lambda functions
-        import_resource "aws_lambda_function" "image_resizer" "${PROJECT_PREFIX}-image-resizer"
-        import_resource "aws_lambda_function" "upload_handler" "${PROJECT_PREFIX}-upload-handler"
-        import_resource "aws_lambda_function" "list_handler" "${PROJECT_PREFIX}-list-handler"
-        
-        echo "🎉 Import process completed"
-
-    # Validate Terraform configuration
-    - name: Terraform Validate
-      run: |
-        echo "✅ Validating Terraform configuration..."
-        terraform validate
-
-    # Format check
-    - name: Terraform Format Check
-      run: |
-        echo "📝 Checking Terraform formatting..."
-        terraform fmt -check -recursive || echo "⚠️ Formatting issues found (will be fixed in next step)"
-
-    # Auto-format if needed
-    - name: Terraform Format
-      run: |
-        echo "🔧 Auto-formatting Terraform files..."
-        terraform fmt -recursive
-
-    # Refresh state
-    - name: Terraform Refresh
-      run: |
-        echo "🔄 Refreshing Terraform state..."
-        terraform refresh -var-file="terraform.tfvars" || echo "Refresh completed with warnings"
-
-    # Create execution plan
     - name: Terraform Plan
-      run: |
-        echo "📋 Creating Terraform execution plan..."
-        terraform plan -input=false -var-file="terraform.tfvars" -out=tfplan
-        
-        # Show plan summary
-        echo "📊 Plan Summary:"
-        terraform show -no-color tfplan | head -50 || echo "Plan created successfully"
+      run: terraform plan -out=tfplan
+      working-directory: ./terraform
       env:
-        TF_VAR_project_name: photo-sharing-app
-        TF_VAR_environment: ${{ github.ref == 'refs/heads/main' && 'prod' || 'dev' }}
+        TF_VAR_aws_region: ${{ env.AWS_REGION }}
 
-    # Apply changes (only on main branch)
     - name: Terraform Apply
-      if: github.ref == 'refs/heads/main' && github.event_name == 'push'
-      run: |
-        echo "🚀 Applying Terraform changes..."
-        terraform apply -auto-approve tfplan
-        
-        # Backup the state
-        echo "💾 Backing up Terraform state..."
-        terraform state pull > terraform-state-backup-$(date +%Y%m%d-%H%M%S).json
+      if: github.ref == 'refs/heads/main'
+      run: terraform apply tfplan
+      working-directory: ./terraform
 
-    # Extract Terraform outputs
     - name: Get Terraform Outputs
-      if: github.ref == 'refs/heads/main' && github.event_name == 'push'
-      id: terraform-outputs
+      if: github.ref == 'refs/heads/main'
+      id: terraform
       run: |
-        echo "📤 Extracting Terraform outputs..."
-        
-        # Get all outputs
-        IMAGES_BUCKET=$(terraform output -raw images_bucket_name 2>/dev/null || echo "")
-        THUMBNAILS_BUCKET=$(terraform output -raw thumbnails_bucket_name 2>/dev/null || echo "")
-        FRONTEND_BUCKET=$(terraform output -raw frontend_bucket_name 2>/dev/null || echo "")
-        DYNAMODB_TABLE=$(terraform output -raw dynamodb_table_name 2>/dev/null || echo "")
-        API_GATEWAY_URL=$(terraform output -raw api_gateway_url 2>/dev/null || echo "")
-        LAMBDA_FUNCTION_NAME=$(terraform output -raw lambda_function_name 2>/dev/null || echo "")
-        UPLOAD_HANDLER_NAME=$(terraform output -raw upload_handler_function_name 2>/dev/null || echo "")
-        LIST_HANDLER_NAME=$(terraform output -raw list_handler_function_name 2>/dev/null || echo "")
-        COGNITO_USER_POOL_ID=$(terraform output -raw cognito_user_pool_id 2>/dev/null || echo "")
-        COGNITO_USER_POOL_CLIENT_ID=$(terraform output -raw cognito_user_pool_client_id 2>/dev/null || echo "")
-        COGNITO_IDENTITY_POOL_ID=$(terraform output -raw cognito_identity_pool_id 2>/dev/null || echo "")
-        COGNITO_REGION=$(terraform output -raw cognito_region 2>/dev/null || echo "${{ env.AWS_REGION }}")
-        
-        # Set GitHub outputs
-        echo "images_bucket=$IMAGES_BUCKET" >> $GITHUB_OUTPUT
-        echo "thumbnails_bucket=$THUMBNAILS_BUCKET" >> $GITHUB_OUTPUT
-        echo "frontend_bucket=$FRONTEND_BUCKET" >> $GITHUB_OUTPUT
-        echo "dynamodb_table=$DYNAMODB_TABLE" >> $GITHUB_OUTPUT
-        echo "api_gateway_url=$API_GATEWAY_URL" >> $GITHUB_OUTPUT
-        echo "lambda_function_name=$LAMBDA_FUNCTION_NAME" >> $GITHUB_OUTPUT
-        echo "upload_handler_name=$UPLOAD_HANDLER_NAME" >> $GITHUB_OUTPUT
-        echo "list_handler_name=$LIST_HANDLER_NAME" >> $GITHUB_OUTPUT
-        echo "cognito_user_pool_id=$COGNITO_USER_POOL_ID" >> $GITHUB_OUTPUT
-        echo "cognito_user_pool_client_id=$COGNITO_USER_POOL_CLIENT_ID" >> $GITHUB_OUTPUT
-        echo "cognito_identity_pool_id=$COGNITO_IDENTITY_POOL_ID" >> $GITHUB_OUTPUT
-        echo "cognito_region=$COGNITO_REGION" >> $GITHUB_OUTPUT
-        
-        # Debug output
-        echo "🔍 Configuration values:"
-        echo "IMAGES_BUCKET: $IMAGES_BUCKET"
-        echo "API_GATEWAY_URL: $API_GATEWAY_URL"
-        echo "COGNITO_USER_POOL_ID: $COGNITO_USER_POOL_ID"
+        echo "images_bucket=$(terraform output -raw images_bucket_name)" >> $GITHUB_OUTPUT
+        echo "frontend_bucket=$(terraform output -raw frontend_bucket_name)" >> $GITHUB_OUTPUT
+        echo "thumbnails_bucket=$(terraform output -raw thumbnails_bucket_name)" >> $GITHUB_OUTPUT
+        echo "user_pool_id=$(terraform output -raw cognito_user_pool_id)" >> $GITHUB_OUTPUT
+        echo "user_pool_client_id=$(terraform output -raw cognito_client_id)" >> $GITHUB_OUTPUT
+        echo "api_gateway_url=$(terraform output -raw api_gateway_url)" >> $GITHUB_OUTPUT
+      working-directory: ./terraform
 
-    # Deploy Lambda functions
-    - name: Deploy Lambda Functions
-      if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+    - name: Install Frontend Dependencies
+      run: npm ci
+      working-directory: ./frontend
+
+    - name: Build React App
+      if: github.ref == 'refs/heads/main'
+      run: npm run build
+      working-directory: ./frontend
+      env:
+        REACT_APP_AWS_REGION: ${{ env.AWS_REGION }}
+        REACT_APP_USER_POOL_ID: ${{ steps.terraform.outputs.user_pool_id }}
+        REACT_APP_USER_POOL_CLIENT_ID: ${{ steps.terraform.outputs.user_pool_client_id }}
+        REACT_APP_IMAGES_BUCKET: ${{ steps.terraform.outputs.images_bucket }}
+        REACT_APP_THUMBNAILS_BUCKET: ${{ steps.terraform.outputs.thumbnails_bucket }}
+        REACT_APP_API_GATEWAY_URL: ${{ steps.terraform.outputs.api_gateway_url }}
+
+    - name: Deploy Frontend to S3
+      if: github.ref == 'refs/heads/main'
       run: |
-        echo "⚡ Deploying Lambda functions..."
-        cd ../lambda
-        
-        # Verify requirements.txt exists
-        if [ ! -f "requirements.txt" ]; then
-            echo "❌ requirements.txt not found!"
-            ls -la
-            exit 1
-        fi
-        
-        echo "📦 Installing Python dependencies..."
-        pip install -r requirements.txt -t . --quiet
-        
-        # Create deployment package
-        echo "📦 Creating deployment package..."
-        zip -r ../lambda_function.zip . -x "*.pyc" "__pycache__/*" "*.git*" > /dev/null
-        
-        # Verify zip was created
-        if [ ! -f "../lambda_function.zip" ]; then
-            echo "❌ Lambda deployment package not created!"
-            exit 1
-        fi
-        
-        echo "📏 Package size: $(du -h ../lambda_function.zip | cut -f1)"
-        
-        # Update Lambda functions
-        update_lambda() {
-            local func_name=$1
-            local func_description=$2
-            
-            if [ ! -z "$func_name" ]; then
-                echo "🔄 Updating $func_description: $func_name"
-                
-                if aws lambda update-function-code \
-                  --function-name "$func_name" \
-                  --zip-file fileb://../lambda_function.zip \
-                  --region ${{ env.AWS_REGION }} > /dev/null; then
-                    echo "✅ Successfully updated $func_description"
-                else
-                    echo "❌ Failed to update $func_description"
-                fi
-            else
-                echo "⚠️ $func_description name not found"
-            fi
-        }
-        
-        # Update all Lambda functions
-        update_lambda "${{ steps.terraform-outputs.outputs.lambda_function_name }}" "Image Resizer"
-        update_lambda "${{ steps.terraform-outputs.outputs.upload_handler_name }}" "Upload Handler"
-        update_lambda "${{ steps.terraform-outputs.outputs.list_handler_name }}" "List Handler"
+        aws s3 sync frontend/build/ s3://${{ steps.terraform.outputs.frontend_bucket }}/ --delete
+        aws s3 cp frontend/build/index.html s3://${{ steps.terraform.outputs.frontend_bucket }}/index.html --cache-control="no-cache"
 
-        # Update environment variables
-        echo "🔧 Updating Lambda environment variables..."
-        
-        if [ ! -z "${{ steps.terraform-outputs.outputs.lambda_function_name }}" ]; then
-            aws lambda update-function-configuration \
-              --function-name ${{ steps.terraform-outputs.outputs.lambda_function_name }} \
-              --environment Variables="{THUMBNAIL_BUCKET=${{ steps.terraform-outputs.outputs.thumbnails_bucket }},THUMBNAIL_SIZE=150,DYNAMODB_TABLE=${{ steps.terraform-outputs.outputs.dynamodb_table }}}" \
-              --region ${{ env.AWS_REGION }} > /dev/null || echo "⚠️ Failed to update image resizer config"
-        fi
-        
-        if [ ! -z "${{ steps.terraform-outputs.outputs.upload_handler_name }}" ]; then
-            aws lambda update-function-configuration \
-              --function-name ${{ steps.terraform-outputs.outputs.upload_handler_name }} \
-              --environment Variables="{IMAGES_BUCKET=${{ steps.terraform-outputs.outputs.images_bucket }},THUMBNAIL_BUCKET=${{ steps.terraform-outputs.outputs.thumbnails_bucket }},DYNAMODB_TABLE=${{ steps.terraform-outputs.outputs.dynamodb_table }}}" \
-              --region ${{ env.AWS_REGION }} > /dev/null || echo "⚠️ Failed to update upload handler config"
-        fi
-        
-        if [ ! -z "${{ steps.terraform-outputs.outputs.list_handler_name }}" ]; then
-            aws lambda update-function-configuration \
-              --function-name ${{ steps.terraform-outputs.outputs.list_handler_name }} \
-              --environment Variables="{THUMBNAIL_BUCKET=${{ steps.terraform-outputs.outputs.thumbnails_bucket }},DYNAMODB_TABLE=${{ steps.terraform-outputs.outputs.dynamodb_table }}}" \
-              --region ${{ env.AWS_REGION }} > /dev/null || echo "⚠️ Failed to update list handler config"
-        fi
-        
-        echo "✅ Lambda deployment completed"
-
-    # Deploy React Frontend
-    - name: Deploy React Frontend
-      if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+    - name: Update Lambda Function
+      if: github.ref == 'refs/heads/main'
       run: |
-        echo "🌐 Deploying React frontend..."
-        cd ../frontend
-        
-        # Verify index.html exists
-        if [ ! -f "index.html" ]; then
-            echo "❌ index.html not found!"
-            ls -la
-            exit 1
-        fi
-        
-        # Create backup
-        cp index.html index.html.bak
-        
-        # Debug: Show configuration values
-        echo "🔍 Configuration values being applied:"
-        echo "IMAGES_BUCKET: ${{ steps.terraform-outputs.outputs.images_bucket }}"
-        echo "THUMBNAILS_BUCKET: ${{ steps.terraform-outputs.outputs.thumbnails_bucket }}"
-        echo "API_GATEWAY_URL: ${{ steps.terraform-outputs.outputs.api_gateway_url }}"
-        echo "COGNITO_USER_POOL_ID: ${{ steps.terraform-outputs.outputs.cognito_user_pool_id }}"
-        echo "COGNITO_USER_POOL_CLIENT_ID: ${{ steps.terraform-outputs.outputs.cognito_user_pool_client_id }}"
-        echo "COGNITO_IDENTITY_POOL_ID: ${{ steps.terraform-outputs.outputs.cognito_identity_pool_id }}"
-        
-        # Replace configuration placeholders
-        echo "🔧 Replacing configuration placeholders..."
-        sed -i "s/{{IMAGES_BUCKET}}/${{ steps.terraform-outputs.outputs.images_bucket }}/g" index.html
-        sed -i "s/{{THUMBNAILS_BUCKET}}/${{ steps.terraform-outputs.outputs.thumbnails_bucket }}/g" index.html
-        sed -i "s|{{API_GATEWAY_URL}}|${{ steps.terraform-outputs.outputs.api_gateway_url }}|g" index.html
-        sed -i "s/{{AWS_REGION}}/${{ env.AWS_REGION }}/g" index.html
-        sed -i "s/{{COGNITO_USER_POOL_ID}}/${{ steps.terraform-outputs.outputs.cognito_user_pool_id }}/g" index.html
-        sed -i "s/{{COGNITO_USER_POOL_CLIENT_ID}}/${{ steps.terraform-outputs.outputs.cognito_user_pool_client_id }}/g" index.html
-        sed -i "s/{{COGNITO_IDENTITY_POOL_ID}}/${{ steps.terraform-outputs.outputs.cognito_identity_pool_id }}/g" index.html
-        
-        # Verify replacements
-        echo "🔍 Checking if all placeholders were replaced..."
-        if grep -q "{{" index.html; then
-            echo "⚠️ Warning: Some placeholders were not replaced:"
-            grep "{{" index.html || true
-            echo "📄 This might cause frontend configuration issues"
-        else
-            echo "✅ All placeholders successfully replaced"
-        fi
-        
-        # Show a sample of the configured file
-        echo "📄 Sample of configured index.html:"
-        grep -A 5 -B 5 "appConfig" index.html | head -20 || echo "Configuration section not found"
-        
-        # Upload to S3
-        echo "📤 Uploading to S3..."
-        aws s3 sync . s3://${{ steps.terraform-outputs.outputs.frontend_bucket }}/ \
-          --delete \
-          --region ${{ env.AWS_REGION }} \
-          --exclude "*.bak" \
-          --cache-control "max-age=300"
-        
-        echo "✅ Frontend deployed successfully"
+        aws lambda update-function-code \
+          --function-name photo-sharing-app-image-resizer \
+          --zip-file fileb://image_resizer.zip
 
-    # Test deployment
-    - name: Test Deployment
-      if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+    - name: Output Deployment URLs
+      if: github.ref == 'refs/heads/main'
       run: |
-        echo "🧪 Testing deployment..."
-        
-        # Test API Gateway endpoint
-        if [ ! -z "${{ steps.terraform-outputs.outputs.api_gateway_url }}" ]; then
-            echo "🔗 Testing API Gateway endpoint..."
-            
-            # Test CORS preflight
-            HTTP_STATUS=$(curl -s -o /dev/null -w "%{http_code}" \
-              -X OPTIONS \
-              "${{ steps.terraform-outputs.outputs.api_gateway_url }}/images/list" \
-              -H "Origin: https://${{ steps.terraform-outputs.outputs.frontend_bucket }}.s3-website.${{ env.AWS_REGION }}.amazonaws.com" \
-              -H "Access-Control-Request-Method: GET" \
-              -H "Access-Control-Request-Headers: Authorization")
-            
-            if [ "$HTTP_STATUS" -eq 200 ]; then
-                echo "✅ CORS preflight test passed"
-            else
-                echo "⚠️ CORS preflight test failed with status: $HTTP_STATUS"
-            fi
-        fi
-        
-        echo "🎉 Deployment testing completed"
-
-    # Generate deployment summary
-    - name: Deployment Summary
-      if: github.ref == 'refs/heads/main' && github.event_name == 'push'
-      run: |
-        echo "## 🎉 React Photo Sharing App Deployment Complete!" >> $GITHUB_STEP_SUMMARY
-        echo "" >> $GITHUB_STEP_SUMMARY
-        echo "### 📊 Infrastructure Deployed:" >> $GITHUB_STEP_SUMMARY
-        echo "- **Images Bucket**: ${{ steps.terraform-outputs.outputs.images_bucket }}" >> $GITHUB_STEP_SUMMARY
-        echo "- **Thumbnails Bucket**: ${{ steps.terraform-outputs.outputs.thumbnails_bucket }}" >> $GITHUB_STEP_SUMMARY
-        echo "- **Frontend Bucket**: ${{ steps.terraform-outputs.outputs.frontend_bucket }}" >> $GITHUB_STEP_SUMMARY
-        echo "- **DynamoDB Table**: ${{ steps.terraform-outputs.outputs.dynamodb_table }}" >> $GITHUB_STEP_SUMMARY
-        echo "- **API Gateway**: ${{ steps.terraform-outputs.outputs.api_gateway_url }}" >> $GITHUB_STEP_SUMMARY
-        echo "" >> $GITHUB_STEP_SUMMARY
-        echo "### 🚀 Lambda Functions:" >> $GITHUB_STEP_SUMMARY
-        echo "- **Image Resizer**: ${{ steps.terraform-outputs.outputs.lambda_function_name }}" >> $GITHUB_STEP_SUMMARY
-        echo "- **Upload Handler**: ${{ steps.terraform-outputs.outputs.upload_handler_name }}" >> $GITHUB_STEP_SUMMARY
-        echo "- **List Handler**: ${{ steps.terraform-outputs.outputs.list_handler_name }}" >> $GITHUB_STEP_SUMMARY
-        echo "" >> $GITHUB_STEP_SUMMARY
-        echo "### 🔐 Authentication:" >> $GITHUB_STEP_SUMMARY
-        echo "- **Cognito User Pool**: ${{ steps.terraform-outputs.outputs.cognito_user_pool_id }}" >> $GITHUB_STEP_SUMMARY
-        echo "- **User Pool Client**: ${{ steps.terraform-outputs.outputs.cognito_user_pool_client_id }}" >> $GITHUB_STEP_SUMMARY
-        echo "- **Identity Pool**: ${{ steps.terraform-outputs.outputs.cognito_identity_pool_id }}" >> $GITHUB_STEP_SUMMARY
-        echo "" >> $GITHUB_STEP_SUMMARY
-        echo "### 🌐 Access Your App:" >> $GITHUB_STEP_SUMMARY
-        echo "**🔗 [Open React Photo Sharing App](https://${{ steps.terraform-outputs.outputs.frontend_bucket }}.s3-website.${{ env.AWS_REGION }}.amazonaws.com/)**" >> $GITHUB_STEP_SUMMARY
-        echo "" >> $GITHUB_STEP_SUMMARY
-        echo "### 🔧 Technical Details:" >> $GITHUB_STEP_SUMMARY
-        echo "- **Frontend**: React.js with Amplify UI authentication" >> $GITHUB_STEP_SUMMARY
-        echo "- **Authentication**: Email/Password only via Cognito" >> $GITHUB_STEP_SUMMARY
-        echo "- **Storage**: S3 with automatic thumbnail generation" >> $GITHUB_STEP_SUMMARY
-        echo "- **Database**: DynamoDB for metadata" >> $GITHUB_STEP_SUMMARY
-        echo "- **API**: REST API via API Gateway + Lambda" >> $GITHUB_STEP_SUMMARY
-
-  security-scan:
-    name: 'Security Scan'
-    runs-on: ubuntu-latest
-    if: github.event_name == 'pull_request'
-    
-    steps:
-    - name: Checkout
-      uses: actions/checkout@v4
-      
-    - name: Run Terraform Security Scan
-      uses: aquasecurity/trivy-action@master
-      with:
-        scan-type: 'config'
-        scan-ref: './terraform'
-        format: 'sarif'
-        output: 'trivy-results.sarif'
-        
-    - name: Upload Trivy scan results to GitHub Security tab
-      uses: github/codeql-action/upload-sarif@v2
-      if: always()
-      with:
-        sarif_file: 'trivy-results.sarif'
+        echo "🚀 Deployment Complete!"
+        echo "Frontend URL: http://${{ steps.terraform.outputs.frontend_bucket }}.s3-website-${{ env.AWS_REGION }}.amazonaws.com"
+        echo "API Gateway URL: ${{ steps.terraform.outputs.api_gateway_url }}"
+        echo "Images Bucket: ${{ steps.terraform.outputs.images_bucket }}"
+        echo "Thumbnails Bucket: ${{ steps.terraform.outputs.thumbnails_bucket }}"
