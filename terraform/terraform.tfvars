@@ -1,3 +1,4 @@
+# terraform/terraform.tfvars - Corrected filename and updated configuration
 # Project Configuration
 project_name = "photo-sharing-app"
 environment  = "prod"

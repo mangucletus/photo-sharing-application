@@ -11,11 +11,11 @@ data "archive_file" "lambda_zip" {
 resource "aws_lambda_function" "image_resizer" {
   filename         = data.archive_file.lambda_zip.output_path
   function_name    = "${local.resource_prefix}-image-resizer"
-  role            = aws_iam_role.lambda_role.arn
-  handler         = "image_resizer.lambda_handler"
-  runtime         = "python3.9"
-  timeout         = var.lambda_timeout
-  memory_size     = var.lambda_memory
+  role             = aws_iam_role.lambda_role.arn
+  handler          = "image_resizer.lambda_handler"
+  runtime          = "python3.9"
+  timeout          = var.lambda_timeout
+  memory_size      = var.lambda_memory
   source_code_hash = data.archive_file.lambda_zip.output_base64sha256
 
   environment {
@@ -36,11 +36,11 @@ resource "aws_lambda_function" "image_resizer" {
 resource "aws_lambda_function" "upload_handler" {
   filename         = data.archive_file.lambda_zip.output_path
   function_name    = "${local.resource_prefix}-upload-handler"
-  role            = aws_iam_role.lambda_role.arn
-  handler         = "upload_handler.lambda_handler"
-  runtime         = "python3.9"
-  timeout         = var.lambda_timeout
-  memory_size     = var.lambda_memory
+  role             = aws_iam_role.lambda_role.arn
+  handler          = "upload_handler.lambda_handler"
+  runtime          = "python3.9"
+  timeout          = var.lambda_timeout
+  memory_size      = var.lambda_memory
   source_code_hash = data.archive_file.lambda_zip.output_base64sha256
 
   environment {
@@ -61,11 +61,11 @@ resource "aws_lambda_function" "upload_handler" {
 resource "aws_lambda_function" "list_handler" {
   filename         = data.archive_file.lambda_zip.output_path
   function_name    = "${local.resource_prefix}-list-handler"
-  role            = aws_iam_role.lambda_role.arn
-  handler         = "list_handler.lambda_handler"
-  runtime         = "python3.9"
-  timeout         = var.lambda_timeout
-  memory_size     = var.lambda_memory
+  role             = aws_iam_role.lambda_role.arn
+  handler          = "list_handler.lambda_handler"
+  runtime          = "python3.9"
+  timeout          = var.lambda_timeout
+  memory_size      = var.lambda_memory
   source_code_hash = data.archive_file.lambda_zip.output_base64sha256
 
   environment {

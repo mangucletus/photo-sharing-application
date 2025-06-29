@@ -1,13 +1,23 @@
-# terraform/api_gateway.tf - Enhanced with upload endpoint and proper CORS
+# terraform/api_gateway.tf - Fixed deprecation warning
 
 # API Gateway REST API
 resource "aws_api_gateway_rest_api" "photo_api" {
   name        = "${local.resource_prefix}-api"
-  description = "API for Photo Sharing App"
-  
+  description = "API for Photo Sharing App with Cognito Authentication"
+
   endpoint_configuration {
     types = ["REGIONAL"]
   }
+}
+
+# Cognito Authorizer for API Gateway
+resource "aws_api_gateway_authorizer" "cognito" {
+  name                   = "${local.resource_prefix}-cognito-authorizer"
+  rest_api_id            = aws_api_gateway_rest_api.photo_api.id
+  type                   = "COGNITO_USER_POOLS"
+  provider_arns          = [aws_cognito_user_pool.main.arn]
+  identity_source        = "method.request.header.Authorization"
+  authorizer_credentials = aws_iam_role.api_gateway_role.arn
 }
 
 # CORS OPTIONS method for the root resource
@@ -78,20 +88,30 @@ resource "aws_api_gateway_resource" "list" {
   path_part   = "list"
 }
 
-# POST method for upload
+# POST method for upload with Cognito authorization
 resource "aws_api_gateway_method" "post_upload" {
   rest_api_id   = aws_api_gateway_rest_api.photo_api.id
   resource_id   = aws_api_gateway_resource.upload.id
   http_method   = "POST"
-  authorization = "NONE"
+  authorization = "COGNITO_USER_POOLS"
+  authorizer_id = aws_api_gateway_authorizer.cognito.id
+
+  request_parameters = {
+    "method.request.header.Authorization" = true
+  }
 }
 
-# GET method for list
+# GET method for list with Cognito authorization
 resource "aws_api_gateway_method" "get_list" {
   rest_api_id   = aws_api_gateway_rest_api.photo_api.id
   resource_id   = aws_api_gateway_resource.list.id
   http_method   = "GET"
-  authorization = "NONE"
+  authorization = "COGNITO_USER_POOLS"
+  authorizer_id = aws_api_gateway_authorizer.cognito.id
+
+  request_parameters = {
+    "method.request.header.Authorization" = true
+  }
 }
 
 # Lambda integration for upload
@@ -101,8 +121,9 @@ resource "aws_api_gateway_integration" "upload_lambda" {
   http_method = aws_api_gateway_method.post_upload.http_method
 
   integration_http_method = "POST"
-  type                   = "AWS_PROXY"
-  uri                    = aws_lambda_function.upload_handler.invoke_arn
+  type                    = "AWS_PROXY"
+  uri                     = aws_lambda_function.upload_handler.invoke_arn
+  credentials             = aws_iam_role.api_gateway_role.arn
 }
 
 # Lambda integration for list
@@ -112,8 +133,9 @@ resource "aws_api_gateway_integration" "list_lambda" {
   http_method = aws_api_gateway_method.get_list.http_method
 
   integration_http_method = "POST"
-  type                   = "AWS_PROXY"
-  uri                    = aws_lambda_function.list_handler.invoke_arn
+  type                    = "AWS_PROXY"
+  uri                     = aws_lambda_function.list_handler.invoke_arn
+  credentials             = aws_iam_role.api_gateway_role.arn
 }
 
 # OPTIONS methods for CORS
@@ -212,20 +234,70 @@ resource "aws_api_gateway_integration_response" "options_list" {
   }
 }
 
-# API Gateway Deployment
+# FIXED: API Gateway Deployment without deprecated stage_name
 resource "aws_api_gateway_deployment" "deployment" {
   rest_api_id = aws_api_gateway_rest_api.photo_api.id
-  stage_name  = var.environment
 
   depends_on = [
     aws_api_gateway_integration.upload_lambda,
     aws_api_gateway_integration.list_lambda,
     aws_api_gateway_integration_response.options_upload,
-    aws_api_gateway_integration_response.options_list
+    aws_api_gateway_integration_response.options_list,
+    aws_api_gateway_authorizer.cognito
   ]
 
   lifecycle {
     create_before_destroy = true
+  }
+
+  # Force redeployment when configuration changes
+  triggers = {
+    redeployment = sha1(jsonencode([
+      aws_api_gateway_method.post_upload.id,
+      aws_api_gateway_method.get_list.id,
+      aws_api_gateway_integration.upload_lambda.id,
+      aws_api_gateway_integration.list_lambda.id,
+    ]))
+  }
+}
+
+# FIXED: Use separate stage resource instead of deprecated stage_name
+resource "aws_api_gateway_stage" "main" {
+  deployment_id = aws_api_gateway_deployment.deployment.id
+  rest_api_id   = aws_api_gateway_rest_api.photo_api.id
+  stage_name    = var.environment
+
+  # Optional: Enable logging and monitoring
+  xray_tracing_enabled = true
+
+  access_log_settings {
+    destination_arn = aws_cloudwatch_log_group.api_gateway_logs.arn
+    format = jsonencode({
+      requestId      = "$context.requestId"
+      requestTime    = "$context.requestTime"
+      httpMethod     = "$context.httpMethod"
+      resourcePath   = "$context.resourcePath"
+      status         = "$context.status"
+      responseLength = "$context.responseLength"
+      userAgent      = "$context.identity.userAgent"
+      sourceIp       = "$context.identity.sourceIp"
+    })
+  }
+
+  tags = {
+    Environment = var.environment
+    Name        = "${local.resource_prefix}-api-stage"
+  }
+}
+
+# CloudWatch log group for API Gateway access logs
+resource "aws_cloudwatch_log_group" "api_gateway_logs" {
+  name              = "/aws/apigateway/${local.resource_prefix}"
+  retention_in_days = 14
+
+  tags = {
+    Environment = var.environment
+    Name        = "${local.resource_prefix}-api-logs"
   }
 }
 

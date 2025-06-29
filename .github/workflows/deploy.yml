@@ -1,3 +1,4 @@
+# File: .github/workflows/deploy.yml
 name: Deploy Photo Sharing App
 
 on:
@@ -46,7 +47,7 @@ jobs:
     - name: Terraform Init
       run: |
         # Update backend configuration with the correct bucket name
-        sed -i 's/your-terraform-state-bucket-name/${{ secrets.TF_STATE_BUCKET }}/g' main.tf
+        sed -i 's/cletus-photo-sharing-tfstate-bucket-2753/${{ secrets.TF_STATE_BUCKET }}/g' main.tf
         terraform init
 
     # Checks that all Terraform configuration files adhere to a canonical format
@@ -84,6 +85,10 @@ jobs:
         echo "lambda_function_name=$(terraform output -raw lambda_function_name)" >> $GITHUB_OUTPUT
         echo "upload_handler_name=$(terraform output -raw upload_handler_function_name)" >> $GITHUB_OUTPUT
         echo "list_handler_name=$(terraform output -raw list_handler_function_name)" >> $GITHUB_OUTPUT
+        echo "cognito_user_pool_id=$(terraform output -raw cognito_user_pool_id)" >> $GITHUB_OUTPUT
+        echo "cognito_user_pool_client_id=$(terraform output -raw cognito_user_pool_client_id)" >> $GITHUB_OUTPUT
+        echo "cognito_identity_pool_id=$(terraform output -raw cognito_identity_pool_id)" >> $GITHUB_OUTPUT
+        echo "cognito_region=$(terraform output -raw cognito_region)" >> $GITHUB_OUTPUT
 
     # Package and deploy Lambda functions
     - name: Deploy Lambda Functions
@@ -91,7 +96,7 @@ jobs:
       run: |
         cd ../lambda
         
-        # Install dependencies
+        # Install dependencies from the CORRECTED filename
         pip install -r requirements.txt -t .
         
         # Create deployment package
@@ -131,7 +136,7 @@ jobs:
           --environment Variables="{THUMBNAIL_BUCKET=${{ steps.terraform-outputs.outputs.thumbnails_bucket }},DYNAMODB_TABLE=${{ steps.terraform-outputs.outputs.dynamodb_table }}}" \
           --region ${{ env.AWS_REGION }}
 
-    # Deploy Frontend
+    # Deploy Frontend with Cognito configuration
     - name: Deploy Frontend
       if: github.ref == 'refs/heads/main' && github.event_name == 'push'
       run: |
@@ -141,6 +146,10 @@ jobs:
         sed -i "s/{{IMAGES_BUCKET}}/${{ steps.terraform-outputs.outputs.images_bucket }}/g" index.html
         sed -i "s/{{THUMBNAILS_BUCKET}}/${{ steps.terraform-outputs.outputs.thumbnails_bucket }}/g" index.html
         sed -i "s|{{API_GATEWAY_URL}}|${{ steps.terraform-outputs.outputs.api_gateway_url }}|g" index.html
+        sed -i "s/{{AWS_REGION}}/${{ env.AWS_REGION }}/g" index.html
+        sed -i "s/{{COGNITO_USER_POOL_ID}}/${{ steps.terraform-outputs.outputs.cognito_user_pool_id }}/g" index.html
+        sed -i "s/{{COGNITO_USER_POOL_CLIENT_ID}}/${{ steps.terraform-outputs.outputs.cognito_user_pool_client_id }}/g" index.html
+        sed -i "s/{{COGNITO_IDENTITY_POOL_ID}}/${{ steps.terraform-outputs.outputs.cognito_identity_pool_id }}/g" index.html
         
         # Upload to S3
         aws s3 sync . s3://${{ steps.terraform-outputs.outputs.frontend_bucket }}/ \
@@ -161,10 +170,15 @@ jobs:
         echo "- **Image Resizer Lambda**: ${{ steps.terraform-outputs.outputs.lambda_function_name }}" >> $GITHUB_STEP_SUMMARY
         echo "- **Upload Handler Lambda**: ${{ steps.terraform-outputs.outputs.upload_handler_name }}" >> $GITHUB_STEP_SUMMARY
         echo "- **List Handler Lambda**: ${{ steps.terraform-outputs.outputs.list_handler_name }}" >> $GITHUB_STEP_SUMMARY
+        echo "- **Cognito User Pool**: ${{ steps.terraform-outputs.outputs.cognito_user_pool_id }}" >> $GITHUB_STEP_SUMMARY
         echo "" >> $GITHUB_STEP_SUMMARY
         echo "### 🌐 Access Your App:" >> $GITHUB_STEP_SUMMARY
         echo "- **Website**: [Open App](http://${{ steps.terraform-outputs.outputs.frontend_bucket }}.s3-website.${{ env.AWS_REGION }}.amazonaws.com/)" >> $GITHUB_STEP_SUMMARY
         echo "- **API Gateway**: ${{ steps.terraform-outputs.outputs.api_gateway_url }}" >> $GITHUB_STEP_SUMMARY
+        echo "" >> $GITHUB_STEP_SUMMARY
+        echo "### 🔐 Authentication:" >> $GITHUB_STEP_SUMMARY
+        echo "- **User Pool ID**: ${{ steps.terraform-outputs.outputs.cognito_user_pool_id }}" >> $GITHUB_STEP_SUMMARY
+        echo "- **Client ID**: ${{ steps.terraform-outputs.outputs.cognito_user_pool_client_id }}" >> $GITHUB_STEP_SUMMARY
 
   security-scan:
     name: 'Security Scan'

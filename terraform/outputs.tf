@@ -1,4 +1,4 @@
-# terraform/outputs.tf - Updated with DynamoDB table
+# terraform/outputs.tf - Updated with Cognito and DynamoDB table
 
 # Output important resource information
 output "images_bucket_name" {
@@ -64,4 +64,30 @@ output "upload_endpoint" {
 output "list_endpoint" {
   description = "API Gateway list endpoint"
   value       = "https://${aws_api_gateway_rest_api.photo_api.id}.execute-api.${data.aws_region.current.name}.amazonaws.com/${var.environment}/images/list"
+}
+
+# Cognito outputs
+output "cognito_user_pool_id" {
+  description = "ID of the Cognito User Pool"
+  value       = aws_cognito_user_pool.main.id
+}
+
+output "cognito_user_pool_client_id" {
+  description = "ID of the Cognito User Pool Client"
+  value       = aws_cognito_user_pool_client.main.id
+}
+
+output "cognito_identity_pool_id" {
+  description = "ID of the Cognito Identity Pool"
+  value       = aws_cognito_identity_pool.main.id
+}
+
+output "cognito_domain" {
+  description = "Cognito User Pool Domain"
+  value       = aws_cognito_user_pool_domain.main.domain
+}
+
+output "cognito_region" {
+  description = "AWS region for Cognito"
+  value       = data.aws_region.current.name
 }

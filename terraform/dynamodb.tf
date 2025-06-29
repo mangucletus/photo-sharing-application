@@ -2,9 +2,9 @@
 
 # DynamoDB table for storing image metadata
 resource "aws_dynamodb_table" "images_metadata" {
-  name           = "${local.resource_prefix}-images-metadata"
-  billing_mode   = "PAY_PER_REQUEST"
-  hash_key       = "image_id"
+  name         = "${local.resource_prefix}-images-metadata"
+  billing_mode = "PAY_PER_REQUEST"
+  hash_key     = "image_id"
 
   attribute {
     name = "image_id"
@@ -23,16 +23,16 @@ resource "aws_dynamodb_table" "images_metadata" {
 
   # Global Secondary Index for querying by upload date
   global_secondary_index {
-    name               = "upload-date-index"
-    hash_key           = "upload_date"
-    projection_type    = "ALL"
+    name            = "upload-date-index"
+    hash_key        = "upload_date"
+    projection_type = "ALL"
   }
 
   # Global Secondary Index for querying by user
   global_secondary_index {
-    name               = "user-index"
-    hash_key           = "user_id"
-    projection_type    = "ALL"
+    name            = "user-index"
+    hash_key        = "user_id"
+    projection_type = "ALL"
   }
 
   tags = {
