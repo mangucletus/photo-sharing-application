@@ -1,4 +1,4 @@
-# terraform/api_gateway.tf - Final fixed version without deprecation warnings
+# terraform/api_gateway.tf - Fixed without problematic access logging
 
 # API Gateway REST API
 resource "aws_api_gateway_rest_api" "photo_api" {
@@ -239,7 +239,7 @@ resource "aws_api_gateway_integration_response" "options_list" {
   }
 }
 
-# FIXED: API Gateway Deployment WITHOUT deprecated stage_name
+# API Gateway Deployment WITHOUT deprecated stage_name
 resource "aws_api_gateway_deployment" "deployment" {
   rest_api_id = aws_api_gateway_rest_api.photo_api.id
 
@@ -266,28 +266,17 @@ resource "aws_api_gateway_deployment" "deployment" {
   }
 }
 
-# FIXED: Separate API Gateway Stage resource (replaces deprecated stage_name)
+# FIXED: API Gateway Stage without problematic access logging
 resource "aws_api_gateway_stage" "main" {
   deployment_id = aws_api_gateway_deployment.deployment.id
   rest_api_id   = aws_api_gateway_rest_api.photo_api.id
   stage_name    = var.environment
 
-  # Enable logging and monitoring
+  # Enable X-Ray tracing (this works without additional setup)
   xray_tracing_enabled = true
 
-  access_log_settings {
-    destination_arn = aws_cloudwatch_log_group.api_gateway_logs.arn
-    format = jsonencode({
-      requestId      = "$context.requestId"
-      requestTime    = "$context.requestTime"
-      httpMethod     = "$context.httpMethod"
-      resourcePath   = "$context.resourcePath"
-      status         = "$context.status"
-      responseLength = "$context.responseLength"
-      userAgent      = "$context.identity.userAgent"
-      sourceIp       = "$context.identity.sourceIp"
-    })
-  }
+  # REMOVED: access_log_settings to fix the CloudWatch Logs role error
+  # To enable logging, you'd need to set up the CloudWatch Logs role first
 
   lifecycle {
     # Handle existing stages gracefully
@@ -300,7 +289,7 @@ resource "aws_api_gateway_stage" "main" {
   }
 }
 
-# CloudWatch log group for API Gateway access logs
+# CloudWatch log group (kept for future use, but not referenced by stage)
 resource "aws_cloudwatch_log_group" "api_gateway_logs" {
   name              = "/aws/apigateway/${local.resource_prefix}"
   retention_in_days = 14
