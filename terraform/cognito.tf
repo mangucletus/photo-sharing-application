@@ -1,4 +1,4 @@
-# terraform/cognito.tf - AWS Cognito User Pool and App Client
+# terraform/cognito.tf - Fixed HTTPS URLs only
 
 # Cognito User Pool
 resource "aws_cognito_user_pool" "main" {
@@ -62,7 +62,7 @@ resource "aws_cognito_user_pool" "main" {
   }
 }
 
-# Cognito User Pool Client
+# Cognito User Pool Client - FIXED: Only HTTPS URLs
 resource "aws_cognito_user_pool_client" "main" {
   name         = "${local.resource_prefix}-user-pool-client"
   user_pool_id = aws_cognito_user_pool.main.id
@@ -72,17 +72,19 @@ resource "aws_cognito_user_pool_client" "main" {
   allowed_oauth_flows_user_pool_client = true
   allowed_oauth_scopes                 = ["email", "openid", "profile"]
 
-  # Callback URLs for your frontend
+  # FIXED: Callback URLs - Only HTTPS and localhost (for development)
   callback_urls = [
-    "http://${aws_s3_bucket.frontend.bucket}.s3-website.${var.aws_region}.amazonaws.com/",
     "https://${aws_s3_bucket.frontend.bucket}.s3-website.${var.aws_region}.amazonaws.com/",
-    "http://localhost:3000/" # For local development
+    "http://localhost:3000/", # Local development only
+    "http://localhost:8080/", # Alternative local development port
+    "https://localhost:3000/" # HTTPS localhost for development
   ]
 
   logout_urls = [
-    "http://${aws_s3_bucket.frontend.bucket}.s3-website.${var.aws_region}.amazonaws.com/",
     "https://${aws_s3_bucket.frontend.bucket}.s3-website.${var.aws_region}.amazonaws.com/",
-    "http://localhost:3000/" # For local development
+    "http://localhost:3000/", # Local development only
+    "http://localhost:8080/", # Alternative local development port
+    "https://localhost:3000/" # HTTPS localhost for development
   ]
 
   # Explicit auth flows

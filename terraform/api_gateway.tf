@@ -1,4 +1,4 @@
-# terraform/api_gateway.tf - Fixed deprecation warning
+# terraform/api_gateway.tf - Fixed to handle existing stage
 
 # API Gateway REST API
 resource "aws_api_gateway_rest_api" "photo_api" {
@@ -234,9 +234,10 @@ resource "aws_api_gateway_integration_response" "options_list" {
   }
 }
 
-# FIXED: API Gateway Deployment without deprecated stage_name
+# FIXED: API Gateway Deployment - use existing stage instead of creating new one
 resource "aws_api_gateway_deployment" "deployment" {
   rest_api_id = aws_api_gateway_rest_api.photo_api.id
+  stage_name  = var.environment
 
   depends_on = [
     aws_api_gateway_integration.upload_lambda,
@@ -261,34 +262,8 @@ resource "aws_api_gateway_deployment" "deployment" {
   }
 }
 
-# FIXED: Use separate stage resource instead of deprecated stage_name
-resource "aws_api_gateway_stage" "main" {
-  deployment_id = aws_api_gateway_deployment.deployment.id
-  rest_api_id   = aws_api_gateway_rest_api.photo_api.id
-  stage_name    = var.environment
-
-  # Optional: Enable logging and monitoring
-  xray_tracing_enabled = true
-
-  access_log_settings {
-    destination_arn = aws_cloudwatch_log_group.api_gateway_logs.arn
-    format = jsonencode({
-      requestId      = "$context.requestId"
-      requestTime    = "$context.requestTime"
-      httpMethod     = "$context.httpMethod"
-      resourcePath   = "$context.resourcePath"
-      status         = "$context.status"
-      responseLength = "$context.responseLength"
-      userAgent      = "$context.identity.userAgent"
-      sourceIp       = "$context.identity.sourceIp"
-    })
-  }
-
-  tags = {
-    Environment = var.environment
-    Name        = "${local.resource_prefix}-api-stage"
-  }
-}
+# Remove the separate stage resource to avoid conflicts
+# The deployment resource above will handle the stage
 
 # CloudWatch log group for API Gateway access logs
 resource "aws_cloudwatch_log_group" "api_gateway_logs" {
