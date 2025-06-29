@@ -1,4 +1,4 @@
-# terraform/outputs.tf - Updated to reference new stage resource
+# terraform/outputs.tf - Fixed to match available resources
 
 # Output important resource information
 output "images_bucket_name" {
@@ -23,10 +23,10 @@ output "dynamodb_table_name" {
 
 output "frontend_url" {
   description = "URL of the frontend website"
-  value       = "https://${aws_s3_bucket_website_configuration.frontend.website_endpoint}"
+  value       = "https://${aws_s3_bucket.frontend.bucket}.s3-website.${data.aws_region.current.name}.amazonaws.com"
 }
 
-# UPDATED: Reference the stage resource instead of deployment
+# API Gateway URL using the stage resource
 output "api_gateway_url" {
   description = "URL of the API Gateway"
   value       = "https://${aws_api_gateway_rest_api.photo_api.id}.execute-api.${data.aws_region.current.name}.amazonaws.com/${aws_api_gateway_stage.main.stage_name}"
@@ -57,7 +57,7 @@ output "thumbnails_bucket_url" {
   value       = "https://${aws_s3_bucket.thumbnails.bucket}.s3.amazonaws.com"
 }
 
-# UPDATED: Reference the stage resource
+# API Gateway endpoints
 output "upload_endpoint" {
   description = "API Gateway upload endpoint"
   value       = "https://${aws_api_gateway_rest_api.photo_api.id}.execute-api.${data.aws_region.current.name}.amazonaws.com/${aws_api_gateway_stage.main.stage_name}/images/upload"

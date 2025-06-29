@@ -1,4 +1,4 @@
-# terraform/cognito.tf - Fixed HTTPS URLs only
+# terraform/cognito.tf - Simplified for email/password only
 
 # Cognito User Pool
 resource "aws_cognito_user_pool" "main" {
@@ -9,13 +9,14 @@ resource "aws_cognito_user_pool" "main" {
     minimum_length    = 8
     require_lowercase = true
     require_numbers   = true
-    require_symbols   = true
+    require_symbols   = false
     require_uppercase = true
   }
 
-  # User attributes
+  # Use email as username
   username_attributes = ["email"]
 
+  # Auto verify email
   auto_verified_attributes = ["email"]
 
   # Account recovery setting
@@ -43,6 +44,16 @@ resource "aws_cognito_user_pool" "main" {
     email_message        = "Your verification code is {####}"
   }
 
+  # Admin create user config
+  admin_create_user_config {
+    allow_admin_create_user_only = false
+    invite_message_template {
+      email_message = "Your username is {username} and temporary password is {####}. "
+      email_subject = "Your temporary password"
+      sms_message   = "Your username is {username} and temporary password is {####}. "
+    }
+  }
+
   # Schema for email attribute
   schema {
     attribute_data_type = "String"
@@ -62,32 +73,16 @@ resource "aws_cognito_user_pool" "main" {
   }
 }
 
-# Cognito User Pool Client - FIXED: Only HTTPS URLs
+# Cognito User Pool Client - Simplified for email/password auth
 resource "aws_cognito_user_pool_client" "main" {
   name         = "${local.resource_prefix}-user-pool-client"
   user_pool_id = aws_cognito_user_pool.main.id
 
-  # OAuth flows
-  allowed_oauth_flows                  = ["code", "implicit"]
-  allowed_oauth_flows_user_pool_client = true
-  allowed_oauth_scopes                 = ["email", "openid", "profile"]
+  # IMPORTANT: No OAuth flows for simple email/password auth
+  generate_secret                      = false
+  allowed_oauth_flows_user_pool_client = false
 
-  # FIXED: Callback URLs - Only HTTPS and localhost (for development)
-  callback_urls = [
-    "https://${aws_s3_bucket.frontend.bucket}.s3-website.${var.aws_region}.amazonaws.com/",
-    "http://localhost:3000/", # Local development only
-    "http://localhost:8080/", # Alternative local development port
-    "https://localhost:3000/" # HTTPS localhost for development
-  ]
-
-  logout_urls = [
-    "https://${aws_s3_bucket.frontend.bucket}.s3-website.${var.aws_region}.amazonaws.com/",
-    "http://localhost:3000/", # Local development only
-    "http://localhost:8080/", # Alternative local development port
-    "https://localhost:3000/" # HTTPS localhost for development
-  ]
-
-  # Explicit auth flows
+  # Explicit auth flows for email/password
   explicit_auth_flows = [
     "ALLOW_USER_PASSWORD_AUTH",
     "ALLOW_USER_SRP_AUTH",
@@ -112,8 +107,10 @@ resource "aws_cognito_user_pool_client" "main" {
   read_attributes  = ["email", "email_verified"]
   write_attributes = ["email"]
 
-  # Generate secret for server-side applications
-  generate_secret = false
+  # Refresh token revocation
+  enable_token_revocation = true
+
+  # Note: aws_cognito_user_pool_client doesn't support tags in some AWS provider versions
 }
 
 # Cognito User Pool Domain
@@ -122,7 +119,7 @@ resource "aws_cognito_user_pool_domain" "main" {
   user_pool_id = aws_cognito_user_pool.main.id
 }
 
-# Identity Pool for unauthenticated and authenticated access
+# Identity Pool for authenticated access to AWS services
 resource "aws_cognito_identity_pool" "main" {
   identity_pool_name               = "${local.resource_prefix}-identity-pool"
   allow_unauthenticated_identities = false
@@ -163,6 +160,11 @@ resource "aws_iam_role" "authenticated" {
       }
     ]
   })
+
+  tags = {
+    Name        = "${local.resource_prefix}-cognito-authenticated-role"
+    Environment = var.environment
+  }
 }
 
 # IAM policy for authenticated users to access S3
@@ -196,6 +198,8 @@ resource "aws_iam_role_policy" "authenticated" {
       }
     ]
   })
+
+  # Note: aws_iam_role_policy doesn't support tags
 }
 
 # Attach identity pool roles
@@ -205,4 +209,6 @@ resource "aws_cognito_identity_pool_roles_attachment" "main" {
   roles = {
     "authenticated" = aws_iam_role.authenticated.arn
   }
+
+  # Note: aws_cognito_identity_pool_roles_attachment doesn't support tags
 }

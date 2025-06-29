@@ -1,4 +1,3 @@
-
 name: Deploy Photo Sharing App
 
 on:
@@ -17,7 +16,6 @@ jobs:
     runs-on: ubuntu-latest
     environment: production
     
-    # Use the Bash shell regardless whether the GitHub Actions runner is ubuntu-latest, macos-latest, or windows-latest
     defaults:
       run:
         shell: bash
@@ -180,30 +178,52 @@ jobs:
         echo "cognito_identity_pool_id=$(terraform output -raw cognito_identity_pool_id)" >> $GITHUB_OUTPUT
         echo "cognito_region=$(terraform output -raw cognito_region)" >> $GITHUB_OUTPUT
 
-    # Package and deploy Lambda functions
+    # Package and deploy Lambda functions - FIXED requirements.txt filename
     - name: Deploy Lambda Functions
       if: github.ref == 'refs/heads/main' && github.event_name == 'push'
       run: |
         echo "⚡ Deploying Lambda functions..."
         cd ../lambda
         
-        # Install dependencies from the CORRECTED filename
+        # Verify requirements.txt exists with correct filename
+        if [ ! -f "requirements.txt" ]; then
+            echo "❌ requirements.txt not found!"
+            ls -la
+            exit 1
+        fi
+        
+        # Install dependencies from the CORRECT filename
         pip install -r requirements.txt -t .
         
         # Create deployment package
         zip -r ../lambda_function.zip . -x "*.pyc" "__pycache__/*"
         
+        # Verify zip was created
+        if [ ! -f "../lambda_function.zip" ]; then
+            echo "❌ Lambda deployment package not created!"
+            exit 1
+        fi
+        
         # Update Lambda functions with error handling
-        for func_var in lambda_function_name upload_handler_name list_handler_name; do
-            func_name="${!func_var}"
+        update_lambda() {
+            local func_name=$1
             if [ ! -z "$func_name" ]; then
                 echo "Updating function: $func_name"
-                aws lambda update-function-code \
+                if aws lambda update-function-code \
                   --function-name "$func_name" \
                   --zip-file fileb://../lambda_function.zip \
-                  --region ${{ env.AWS_REGION }} || echo "Failed to update $func_name"
+                  --region ${{ env.AWS_REGION }}; then
+                    echo "✅ Successfully updated $func_name"
+                else
+                    echo "❌ Failed to update $func_name"
+                fi
             fi
-        done
+        }
+        
+        # Update all Lambda functions
+        update_lambda "${{ steps.terraform-outputs.outputs.lambda_function_name }}"
+        update_lambda "${{ steps.terraform-outputs.outputs.upload_handler_name }}"
+        update_lambda "${{ steps.terraform-outputs.outputs.list_handler_name }}"
 
         # Update environment variables for Lambda functions
         if [ ! -z "${{ steps.terraform-outputs.outputs.lambda_function_name }}" ]; then
@@ -227,12 +247,29 @@ jobs:
               --region ${{ env.AWS_REGION }} || echo "Failed to update list handler config"
         fi
 
-    # Deploy Frontend with Cognito configuration
+    # Deploy Frontend with Cognito configuration - IMPROVED
     - name: Deploy Frontend
       if: github.ref == 'refs/heads/main' && github.event_name == 'push'
       run: |
         echo "🌐 Deploying frontend..."
         cd ../frontend
+        
+        # Verify index.html exists
+        if [ ! -f "index.html" ]; then
+            echo "❌ index.html not found!"
+            ls -la
+            exit 1
+        fi
+        
+        # Create a backup and working copy
+        cp index.html index.html.bak
+        
+        # Debug: Show what we're replacing
+        echo "🔍 Configuration values:"
+        echo "IMAGES_BUCKET: ${{ steps.terraform-outputs.outputs.images_bucket }}"
+        echo "THUMBNAILS_BUCKET: ${{ steps.terraform-outputs.outputs.thumbnails_bucket }}"
+        echo "API_GATEWAY_URL: ${{ steps.terraform-outputs.outputs.api_gateway_url }}"
+        echo "COGNITO_USER_POOL_ID: ${{ steps.terraform-outputs.outputs.cognito_user_pool_id }}"
         
         # Replace placeholders in index.html with actual values
         sed -i "s/{{IMAGES_BUCKET}}/${{ steps.terraform-outputs.outputs.images_bucket }}/g" index.html
@@ -243,10 +280,22 @@ jobs:
         sed -i "s/{{COGNITO_USER_POOL_CLIENT_ID}}/${{ steps.terraform-outputs.outputs.cognito_user_pool_client_id }}/g" index.html
         sed -i "s/{{COGNITO_IDENTITY_POOL_ID}}/${{ steps.terraform-outputs.outputs.cognito_identity_pool_id }}/g" index.html
         
+        # Verify replacements were made
+        echo "🔍 Checking if placeholders were replaced..."
+        if grep -q "{{" index.html; then
+            echo "⚠️ Warning: Some placeholders were not replaced:"
+            grep "{{" index.html || true
+        else
+            echo "✅ All placeholders were successfully replaced"
+        fi
+        
         # Upload to S3
         aws s3 sync . s3://${{ steps.terraform-outputs.outputs.frontend_bucket }}/ \
           --delete \
-          --region ${{ env.AWS_REGION }}
+          --region ${{ env.AWS_REGION }} \
+          --exclude "*.bak"
+        
+        echo "✅ Frontend deployed successfully"
 
     # Output deployment information
     - name: Deployment Summary
@@ -271,6 +320,10 @@ jobs:
         echo "### 🔐 Authentication:" >> $GITHUB_STEP_SUMMARY
         echo "- **User Pool ID**: ${{ steps.terraform-outputs.outputs.cognito_user_pool_id }}" >> $GITHUB_STEP_SUMMARY
         echo "- **Client ID**: ${{ steps.terraform-outputs.outputs.cognito_user_pool_client_id }}" >> $GITHUB_STEP_SUMMARY
+        echo "" >> $GITHUB_STEP_SUMMARY
+        echo "### 🔧 Debug Information:" >> $GITHUB_STEP_SUMMARY
+        echo "- **AWS Region**: ${{ env.AWS_REGION }}" >> $GITHUB_STEP_SUMMARY
+        echo "- **Environment**: ${{ github.ref == 'refs/heads/main' && 'prod' || 'dev' }}" >> $GITHUB_STEP_SUMMARY
 
   security-scan:
     name: 'Security Scan'

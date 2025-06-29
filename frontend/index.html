@@ -6,12 +6,15 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Photo Sharing App</title>
 
-    <!-- AWS Amplify UI Web Components -->
-    <script type="module" src="https://unpkg.com/@aws-amplify/ui-components@latest/loader/index.es2017.js"></script>
-    <link rel="stylesheet" href="https://unpkg.com/@aws-amplify/ui-components@latest/dist/amplify-ui/amplify-ui.css" />
+    <!-- AWS Amplify Core -->
+    <script src="https://unpkg.com/@aws-amplify/core@5.8.5/dist/umd/aws-amplify-core.min.js"></script>
+    <script src="https://unpkg.com/@aws-amplify/auth@5.6.5/dist/umd/aws-amplify-auth.min.js"></script>
 
-    <!-- AWS Amplify -->
-    <script src="https://unpkg.com/aws-amplify@latest/dist/aws-amplify.min.js"></script>
+    <!-- AWS Amplify UI for React (modern version) -->
+    <script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+    <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+    <script src="https://unpkg.com/@aws-amplify/ui-react@5.3.0/dist/umd/aws-amplify-ui-react.min.js"></script>
+    <link rel="stylesheet" href="https://unpkg.com/@aws-amplify/ui-react@5.3.0/dist/styles.css" />
 
     <style>
         /* Modern CSS styling for the photo sharing app */
@@ -29,7 +32,7 @@
             min-height: 100vh;
         }
 
-        /* Authentication page styling */
+        /* Authentication container styling */
         .auth-container {
             display: flex;
             justify-content: center;
@@ -44,7 +47,7 @@
             border-radius: 15px;
             box-shadow: 0 10px 30px rgba(0, 0, 0, 0.2);
             backdrop-filter: blur(10px);
-            max-width: 400px;
+            max-width: 500px;
             width: 100%;
         }
 
@@ -56,10 +59,22 @@
         .auth-header h1 {
             color: #667eea;
             margin-bottom: 10px;
+            font-size: 2rem;
         }
 
         .auth-header p {
             color: #666;
+            font-size: 1.1rem;
+        }
+
+        /* Override Amplify UI styles */
+        [data-amplify-authenticator] {
+            --amplify-components-button-primary-background-color: #667eea;
+            --amplify-components-button-primary-border-color: #667eea;
+            --amplify-components-button-primary-hover-background-color: #764ba2;
+            --amplify-components-tabs-item-active-border-color: #667eea;
+            --amplify-components-tabs-item-active-color: #667eea;
+            --amplify-components-fieldcontrol-focus-box-shadow: 0 0 0 2px rgba(102, 126, 234, 0.3);
         }
 
         /* Main app styling */
@@ -76,6 +91,8 @@
             display: flex;
             justify-content: space-between;
             align-items: center;
+            flex-wrap: wrap;
+            gap: 20px;
         }
 
         .header-content h1 {
@@ -196,6 +213,8 @@
             justify-content: space-between;
             align-items: center;
             margin-bottom: 30px;
+            flex-wrap: wrap;
+            gap: 20px;
         }
 
         .gallery-header h2 {
@@ -344,19 +363,13 @@
             color: #bbb;
         }
 
-        /* Hide main app until authenticated */
+        /* Hide content until loaded */
         .main-app {
             display: none;
         }
 
         .auth-page {
             display: block;
-        }
-
-        /* Custom Amplify UI styling */
-        amplify-authenticator {
-            --amplify-components-authenticator-router-background-color: transparent;
-            --amplify-components-authenticator-router-border: none;
         }
 
         @media (max-width: 768px) {
@@ -366,7 +379,6 @@
 
             .header {
                 flex-direction: column;
-                gap: 20px;
             }
 
             .header-content h1 {
@@ -387,29 +399,10 @@
 </head>
 
 <body>
-    <!-- Authentication Page -->
-    <div id="authPage" class="auth-page">
-        <div class="auth-container">
-            <div class="auth-wrapper">
-                <div class="auth-header">
-                    <h1>📸 Photo Sharing App</h1>
-                    <p>Sign in to upload and share your photos</p>
-                </div>
-                <amplify-authenticator>
-                    <div slot="sign-in">
-                        <amplify-sign-in header-text="Sign in to your account"></amplify-sign-in>
-                    </div>
-                    <div slot="sign-up">
-                        <amplify-sign-up header-text="Create your account" username-alias="email"
-                            password-field-description="Password must be at least 8 characters">
-                        </amplify-sign-up>
-                    </div>
-                </amplify-authenticator>
-            </div>
-        </div>
-    </div>
+    <!-- React Root for Amplify Authenticator -->
+    <div id="auth-root"></div>
 
-    <!-- Main Application -->
+    <!-- Main Application (hidden until authenticated) -->
     <div id="mainApp" class="main-app">
         <div class="container">
             <!-- Header Section -->
@@ -420,7 +413,7 @@
                 </div>
                 <div class="user-info">
                     <div class="user-email" id="userEmail">Loading...</div>
-                    <button class="logout-btn" onclick="signOut()">Sign Out</button>
+                    <button class="logout-btn" onclick="handleSignOut()">Sign Out</button>
                 </div>
             </div>
 
@@ -473,32 +466,62 @@
             COGNITO_IDENTITY_POOL_ID: '{{COGNITO_IDENTITY_POOL_ID}}'
         };
 
-        // AWS Amplify Configuration
-        const { Amplify, Auth } = window.aws_amplify_core;
+        // Debug configuration
+        console.log('App Configuration:', CONFIG);
 
-        Amplify.configure({
-            Auth: {
-                region: CONFIG.AWS_REGION,
-                userPoolId: CONFIG.COGNITO_USER_POOL_ID,
-                userPoolWebClientId: CONFIG.COGNITO_USER_POOL_CLIENT_ID,
-                identityPoolId: CONFIG.COGNITO_IDENTITY_POOL_ID,
-                mandatorySignIn: true,
-                authenticationFlowType: 'USER_PASSWORD_AUTH'
+        // Check if configuration is properly loaded
+        function validateConfig() {
+            const requiredFields = ['IMAGES_BUCKET', 'API_GATEWAY_URL', 'COGNITO_USER_POOL_ID'];
+            const missing = requiredFields.filter(field =>
+                !CONFIG[field] || CONFIG[field].includes('{{')
+            );
+
+            if (missing.length > 0) {
+                console.error('Missing configuration fields:', missing);
+                showMessage(`Configuration error: ${missing.join(', ')} not properly set`, 'error');
+                return false;
             }
-        });
+            return true;
+        }
+
+        // AWS Amplify Configuration
+        const { Amplify, Auth } = window.aws_amplify_core || {};
+
+        if (!Amplify || !Auth) {
+            console.error('Amplify not loaded properly');
+            showMessage('Application loading error. Please refresh the page.', 'error');
+        } else {
+            // Configure Amplify
+            Amplify.configure({
+                Auth: {
+                    region: CONFIG.AWS_REGION,
+                    userPoolId: CONFIG.COGNITO_USER_POOL_ID,
+                    userPoolWebClientId: CONFIG.COGNITO_USER_POOL_CLIENT_ID,
+                    identityPoolId: CONFIG.COGNITO_IDENTITY_POOL_ID,
+                    mandatorySignIn: true,
+                    authenticationFlowType: 'USER_PASSWORD_AUTH'
+                }
+            });
+        }
 
         // Global variables
         let currentUser = null;
         let uploadedImages = [];
+        let authenticatorComponent = null;
 
         // DOM elements
         let uploadArea, fileInput, uploadButton, gallery, messageContainer, progressContainer, progressFill, modal, modalImage;
 
         // Initialize the application
         document.addEventListener('DOMContentLoaded', function () {
+            console.log('DOM loaded, initializing app...');
+
+            if (!validateConfig()) {
+                return;
+            }
+
             initializeDOMElements();
-            checkAuthState();
-            initializeAmplifyUI();
+            initializeAmplifyAuthenticator();
         });
 
         /**
@@ -517,38 +540,83 @@
         }
 
         /**
-         * Initialize Amplify UI components
+         * Initialize Amplify Authenticator using React
          */
-        function initializeAmplifyUI() {
-            const authenticator = document.querySelector('amplify-authenticator');
+        function initializeAmplifyAuthenticator() {
+            const { Authenticator } = window.AmplifyUIReact;
+            const { createElement: h } = React;
 
-            if (authenticator) {
-                authenticator.addEventListener('authStateChange', (e) => {
-                    const { authState, user } = e.detail;
-                    console.log('Auth state changed:', authState);
-
-                    if (authState === 'signedin') {
-                        currentUser = user;
-                        showMainApp();
-                    } else {
-                        currentUser = null;
-                        showAuthPage();
+            // Custom form fields for Amplify Authenticator
+            const formFields = {
+                signIn: {
+                    username: {
+                        label: 'Email',
+                        placeholder: 'Enter your email address',
+                        isRequired: true,
+                        order: 1
+                    },
+                    password: {
+                        label: 'Password',
+                        placeholder: 'Enter your password',
+                        isRequired: true,
+                        order: 2
                     }
-                });
-            }
-        }
+                },
+                signUp: {
+                    email: {
+                        label: 'Email',
+                        placeholder: 'Enter your email address',
+                        isRequired: true,
+                        order: 1
+                    },
+                    password: {
+                        label: 'Password',
+                        placeholder: 'Create a strong password',
+                        isRequired: true,
+                        order: 2
+                    },
+                    confirm_password: {
+                        label: 'Confirm Password',
+                        placeholder: 'Confirm your password',
+                        isRequired: true,
+                        order: 3
+                    }
+                }
+            };
 
-        /**
-         * Check current authentication state
-         */
-        async function checkAuthState() {
-            try {
-                const user = await Auth.currentAuthenticatedUser();
-                currentUser = user;
-                showMainApp();
-            } catch (error) {
-                console.log('Not authenticated');
-                showAuthPage();
+            // Authentication component
+            const AuthComponent = () => {
+                return h(Authenticator, {
+                    formFields: formFields,
+                    signUpAttributes: ['email'],
+                    hideSignUp: false,
+                    loginMechanisms: ['email'],
+                    variation: 'modal'
+                }, ({ signOut, user }) => {
+                    if (user) {
+                        currentUser = user;
+                        console.log('User authenticated:', user);
+                        showMainApp();
+                        return null;
+                    }
+                    return h('div', { className: 'auth-container' },
+                        h('div', { className: 'auth-wrapper' },
+                            h('div', { className: 'auth-header' },
+                                h('h1', null, '📸 Photo Sharing App'),
+                                h('p', null, 'Sign in to upload and share your photos')
+                            )
+                        )
+                    );
+                });
+            };
+
+            // Render the authenticator
+            const authRoot = document.getElementById('auth-root');
+            if (authRoot && window.ReactDOM) {
+                ReactDOM.render(h(AuthComponent), authRoot);
+            } else {
+                console.error('React or auth-root not found');
+                showMessage('Authentication component failed to load', 'error');
             }
         }
 
@@ -556,10 +624,13 @@
          * Show the main application
          */
         function showMainApp() {
-            document.getElementById('authPage').style.display = 'none';
+            console.log('Showing main app for user:', currentUser);
+
+            // Hide auth and show main app
+            document.getElementById('auth-root').style.display = 'none';
             document.getElementById('mainApp').style.display = 'block';
 
-            // Update user email
+            // Update user email display
             if (currentUser && currentUser.attributes && currentUser.attributes.email) {
                 document.getElementById('userEmail').textContent = currentUser.attributes.email;
             }
@@ -569,21 +640,18 @@
         }
 
         /**
-         * Show the authentication page
+         * Handle sign out
          */
-        function showAuthPage() {
-            document.getElementById('authPage').style.display = 'block';
-            document.getElementById('mainApp').style.display = 'none';
-        }
-
-        /**
-         * Sign out the current user
-         */
-        async function signOut() {
+        async function handleSignOut() {
             try {
                 await Auth.signOut();
                 currentUser = null;
-                showAuthPage();
+
+                // Show auth page again
+                document.getElementById('auth-root').style.display = 'block';
+                document.getElementById('mainApp').style.display = 'none';
+
+                console.log('User signed out successfully');
             } catch (error) {
                 console.error('Error signing out:', error);
                 showMessage('Error signing out. Please try again.', 'error');
@@ -708,7 +776,6 @@
 
             if (successCount > 0) {
                 showMessage(`Successfully uploaded ${successCount} image(s)!`, 'success');
-                // Wait a moment for Lambda to process, then refresh gallery
                 setTimeout(() => {
                     loadGallery();
                 }, 3000);
@@ -727,7 +794,6 @@
          */
         async function uploadSingleFile(file) {
             try {
-                // Get the current session to include in the request
                 const session = await Auth.currentSession();
                 const idToken = session.getIdToken().getJwtToken();
 
@@ -745,7 +811,8 @@
                 });
 
                 if (!uploadResponse.ok) {
-                    throw new Error(`Failed to get upload URL: ${uploadResponse.status}`);
+                    const errorText = await uploadResponse.text();
+                    throw new Error(`Failed to get upload URL: ${uploadResponse.status} - ${errorText}`);
                 }
 
                 const uploadData = await uploadResponse.json();
@@ -781,11 +848,9 @@
             try {
                 showLoading(true);
 
-                // Get the current session for authentication
                 const session = await Auth.currentSession();
                 const idToken = session.getIdToken().getJwtToken();
 
-                // Get list of images from API Gateway
                 const response = await fetch(`${CONFIG.API_GATEWAY_URL}/images/list`, {
                     method: 'GET',
                     headers: {
@@ -795,7 +860,8 @@
                 });
 
                 if (!response.ok) {
-                    throw new Error(`API request failed: ${response.status}`);
+                    const errorText = await response.text();
+                    throw new Error(`API request failed: ${response.status} - ${errorText}`);
                 }
 
                 const data = await response.json();
@@ -816,7 +882,8 @@
                 console.error('Error loading gallery:', error);
                 gallery.innerHTML = `
                     <div class="loading">
-                        <p>Error loading gallery. Please try again.</p>
+                        <p>Error loading gallery: ${error.message}</p>
+                        <button class="btn" onclick="loadGallery()">Retry</button>
                     </div>
                 `;
             }
@@ -903,10 +970,14 @@
             messageDiv.className = `${type}-message`;
             messageDiv.textContent = message;
 
+            if (!messageContainer) {
+                console.error('Message container not found');
+                return;
+            }
+
             messageContainer.innerHTML = '';
             messageContainer.appendChild(messageDiv);
 
-            // Auto-remove message after 5 seconds
             setTimeout(() => {
                 if (messageContainer.contains(messageDiv)) {
                     messageContainer.removeChild(messageDiv);
@@ -924,6 +995,18 @@
             const i = Math.floor(Math.log(bytes) / Math.log(k));
             return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
         }
+
+        // Global error handler
+        window.addEventListener('error', function (e) {
+            console.error('Global error:', e.error);
+            showMessage('An unexpected error occurred. Please check the console for details.', 'error');
+        });
+
+        // Handle unhandled promise rejections
+        window.addEventListener('unhandledrejection', function (e) {
+            console.error('Unhandled promise rejection:', e.reason);
+            showMessage('A network or authentication error occurred. Please try again.', 'error');
+        });
     </script>
 </body>
 
