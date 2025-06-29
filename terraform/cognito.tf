@@ -1,4 +1,4 @@
-# terraform/cognito.tf - Simplified for email/password only
+# terraform/cognito.tf - Simplified for React + email/password only
 
 # Cognito User Pool
 resource "aws_cognito_user_pool" "main" {
@@ -44,14 +44,9 @@ resource "aws_cognito_user_pool" "main" {
     email_message        = "Your verification code is {####}"
   }
 
-  # Admin create user config
+  # Admin create user config - allow self-registration
   admin_create_user_config {
     allow_admin_create_user_only = false
-    invite_message_template {
-      email_message = "Your username is {username} and temporary password is {####}. "
-      email_subject = "Your temporary password"
-      sms_message   = "Your username is {username} and temporary password is {####}. "
-    }
   }
 
   # Schema for email attribute
@@ -73,16 +68,16 @@ resource "aws_cognito_user_pool" "main" {
   }
 }
 
-# Cognito User Pool Client - Simplified for email/password auth
+# Cognito User Pool Client - Ultra-simplified for React
 resource "aws_cognito_user_pool_client" "main" {
   name         = "${local.resource_prefix}-user-pool-client"
   user_pool_id = aws_cognito_user_pool.main.id
 
-  # IMPORTANT: No OAuth flows for simple email/password auth
+  # No OAuth - pure email/password authentication
   generate_secret                      = false
   allowed_oauth_flows_user_pool_client = false
 
-  # Explicit auth flows for email/password
+  # Enable auth flows needed for React/Amplify
   explicit_auth_flows = [
     "ALLOW_USER_PASSWORD_AUTH",
     "ALLOW_USER_SRP_AUTH",
@@ -100,26 +95,20 @@ resource "aws_cognito_user_pool_client" "main" {
     refresh_token = "days"
   }
 
-  # Prevent user existence errors
+  # Security settings
   prevent_user_existence_errors = "ENABLED"
+  enable_token_revocation       = true
 
-  # Read and write attributes
+  # Attributes
   read_attributes  = ["email", "email_verified"]
   write_attributes = ["email"]
 
-  # Refresh token revocation
-  enable_token_revocation = true
-
-  # Note: aws_cognito_user_pool_client doesn't support tags in some AWS provider versions
+  # Remove callback/logout URLs for non-OAuth setup
+  # callback_urls = []
+  # logout_urls = []
 }
 
-# Cognito User Pool Domain
-resource "aws_cognito_user_pool_domain" "main" {
-  domain       = "${local.resource_prefix}-auth-${local.bucket_suffix}"
-  user_pool_id = aws_cognito_user_pool.main.id
-}
-
-# Identity Pool for authenticated access to AWS services
+# Identity Pool for AWS service access
 resource "aws_cognito_identity_pool" "main" {
   identity_pool_name               = "${local.resource_prefix}-identity-pool"
   allow_unauthenticated_identities = false
@@ -198,8 +187,6 @@ resource "aws_iam_role_policy" "authenticated" {
       }
     ]
   })
-
-  # Note: aws_iam_role_policy doesn't support tags
 }
 
 # Attach identity pool roles
@@ -209,6 +196,4 @@ resource "aws_cognito_identity_pool_roles_attachment" "main" {
   roles = {
     "authenticated" = aws_iam_role.authenticated.arn
   }
-
-  # Note: aws_cognito_identity_pool_roles_attachment doesn't support tags
 }

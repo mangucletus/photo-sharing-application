@@ -1,5 +1,5 @@
 """
-Lambda function to handle file uploads via API Gateway.
+Lambda function to handle file uploads via API Gateway for React frontend.
 Generates presigned URLs for secure S3 uploads with Cognito authentication.
 """
 
@@ -8,6 +8,7 @@ import boto3
 import os
 import logging
 import uuid
+import base64
 from datetime import datetime
 from botocore.exceptions import ClientError
 
@@ -21,11 +22,11 @@ dynamodb = boto3.resource('dynamodb')
 
 def lambda_handler(event, context):
     """
-    Handle upload requests from API Gateway.
+    Handle upload requests from React frontend via API Gateway.
     Returns presigned URLs for direct S3 uploads.
     """
     
-    # Enable CORS
+    # Enable CORS for all responses
     headers = {
         'Access-Control-Allow-Origin': '*',
         'Access-Control-Allow-Headers': 'Content-Type,X-Amz-Date,Authorization,X-Api-Key,X-Amz-Security-Token',
@@ -34,6 +35,8 @@ def lambda_handler(event, context):
     }
     
     try:
+        logger.info(f"Received event: {json.dumps(event)}")
+        
         # Handle CORS preflight
         if event.get('httpMethod') == 'OPTIONS':
             return {
@@ -55,7 +58,7 @@ def lambda_handler(event, context):
         user_id = 'anonymous'
         user_email = 'unknown'
         
-        # Get user info from Cognito authorizer context if available
+        # Get user info from Cognito authorizer context
         request_context = event.get('requestContext', {})
         authorizer = request_context.get('authorizer', {})
         
@@ -65,21 +68,35 @@ def lambda_handler(event, context):
             user_email = claims.get('email', 'unknown')
             logger.info(f"Authenticated user: {user_email} ({user_id})")
         else:
-            # Fallback: try to extract from JWT token in headers
+            # Try to extract from headers if authorizer context is missing
             auth_header = event.get('headers', {}).get('Authorization', '')
             if auth_header.startswith('Bearer '):
                 try:
-                    # In production, you'd want to properly validate the JWT
-                    # For now, we'll use the basic user info
-                    user_id = f"user_{uuid.uuid4().hex[:8]}"
+                    # Extract basic info from token (in production, validate JWT properly)
+                    token = auth_header.replace('Bearer ', '')
+                    # For now, generate a user ID from token hash
+                    user_id = f"user_{hash(token) % 1000000}"
                     logger.info(f"Token-based auth for user: {user_id}")
                 except Exception as e:
                     logger.warning(f"Could not extract user from token: {str(e)}")
         
         # Parse request body
         try:
-            body = json.loads(event.get('body', '{}'))
-        except json.JSONDecodeError:
+            if event.get('body'):
+                # Handle base64 encoded body if needed
+                body_content = event['body']
+                if event.get('isBase64Encoded', False):
+                    body_content = base64.b64decode(body_content).decode('utf-8')
+                
+                body = json.loads(body_content)
+            else:
+                return {
+                    'statusCode': 400,
+                    'headers': headers,
+                    'body': json.dumps({'error': 'Request body is required'})
+                }
+        except json.JSONDecodeError as e:
+            logger.error(f"JSON decode error: {str(e)}")
             return {
                 'statusCode': 400,
                 'headers': headers,
@@ -99,7 +116,7 @@ def lambda_handler(event, context):
         # Enhanced file type validation
         allowed_types = [
             'image/jpeg', 'image/jpg', 'image/png', 'image/gif', 
-            'image/webp', 'image/bmp', 'image/tiff', 'image/svg+xml'
+            'image/webp', 'image/bmp', 'image/tiff'
         ]
         
         if content_type not in allowed_types:
@@ -117,12 +134,13 @@ def lambda_handler(event, context):
             return {
                 'statusCode': 400,
                 'headers': headers,
-                'body': json.dumps({'error': 'Invalid filename. Please use alphanumeric characters and common extensions.'})
+                'body': json.dumps({'error': 'Invalid filename. Please use safe characters and image extensions.'})
             }
         
         # Generate unique filename to prevent conflicts
-        file_extension = filename.split('.')[-1] if '.' in filename else 'jpg'
-        unique_filename = f"{user_id}_{uuid.uuid4().hex}_{filename}"
+        file_extension = filename.split('.')[-1].lower() if '.' in filename else 'jpg'
+        timestamp = datetime.utcnow().strftime('%Y%m%d_%H%M%S')
+        unique_filename = f"{user_id}_{timestamp}_{uuid.uuid4().hex[:8]}_{filename}"
         
         logger.info(f"Generating presigned URL for: {unique_filename}")
         
@@ -171,7 +189,7 @@ def lambda_handler(event, context):
                     'content_type': content_type,
                     'source_bucket': bucket_name,
                     'presigned_url_generated': True,
-                    'presigned_url_expires': (datetime.utcnow().timestamp() + 3600)
+                    'presigned_url_expires': upload_date
                 }
             )
             
@@ -179,7 +197,7 @@ def lambda_handler(event, context):
             
         except ClientError as e:
             logger.error(f"Error storing metadata in DynamoDB: {str(e)}")
-            # Don't fail the upload if DynamoDB fails, but log the error
+            # Don't fail the upload if DynamoDB fails
         
         # Generate view URL for the uploaded file
         view_url = f"https://{bucket_name}.s3.amazonaws.com/{unique_filename}"
@@ -249,37 +267,9 @@ def validate_filename(filename):
     # Check file extension
     allowed_extensions = {
         '.jpg', '.jpeg', '.png', '.gif', '.bmp', 
-        '.webp', '.tiff', '.tif', '.svg'
+        '.webp', '.tiff', '.tif'
     }
     
     file_extension = '.' + filename.lower().split('.')[-1] if '.' in filename else ''
     
     return file_extension in allowed_extensions
-
-def extract_user_from_event(event):
-    """
-    Extract user information from the Lambda event.
-    
-    Args:
-        event: Lambda event data
-    
-    Returns:
-        tuple: (user_id, user_email)
-    """
-    try:
-        # Try to get user info from Cognito authorizer context
-        request_context = event.get('requestContext', {})
-        authorizer = request_context.get('authorizer', {})
-        
-        if authorizer and 'claims' in authorizer:
-            claims = authorizer['claims']
-            user_id = claims.get('sub', f"user_{uuid.uuid4().hex[:8]}")
-            user_email = claims.get('email', 'unknown@example.com')
-            return user_id, user_email
-        
-        # Fallback for testing or non-Cognito scenarios
-        return f"user_{uuid.uuid4().hex[:8]}", 'test@example.com'
-        
-    except Exception as e:
-        logger.warning(f"Could not extract user info: {str(e)}")
-        return f"user_{uuid.uuid4().hex[:8]}", 'unknown@example.com'

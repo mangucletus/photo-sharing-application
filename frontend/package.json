@@ -1,0 +1,47 @@
+{
+    "name": "react-photo-sharing-app",
+    "version": "1.0.0",
+    "description": "A React-based photo sharing application with AWS Amplify authentication",
+    "main": "index.html",
+    "scripts": {
+      "dev": "npx live-server --port=3000 --host=localhost --cors",
+      "start": "npx live-server --port=3000 --host=localhost --cors",
+      "serve": "npx http-server -p 3000 -c-1 --cors",
+      "test-local": "node scripts/test-local.js",
+      "validate": "npx html-validate index.html",
+      "deploy": "aws s3 sync . s3://$(terraform -chdir=../terraform output -raw frontend_bucket_name)/ --delete --exclude node_modules --exclude package*.json --exclude scripts"
+    },
+    "keywords": [
+      "react",
+      "aws",
+      "amplify",
+      "cognito",
+      "s3",
+      "photo-sharing",
+      "image-upload"
+    ],
+    "author": "Photo Sharing App Team",
+    "license": "MIT",
+    "devDependencies": {
+      "live-server": "^1.2.2",
+      "http-server": "^14.1.1",
+      "html-validate": "^8.7.4"
+    },
+    "dependencies": {},
+    "engines": {
+      "node": ">=16.0.0"
+    },
+    "browserslist": [
+      "> 1%",
+      "last 2 versions",
+      "not dead"
+    ],
+    "repository": {
+      "type": "git",
+      "url": "https://github.com/your-username/photo-sharing-app.git"
+    },
+    "bugs": {
+      "url": "https://github.com/your-username/photo-sharing-app/issues"
+    },
+    "homepage": "https://github.com/your-username/photo-sharing-app#readme"
+  }

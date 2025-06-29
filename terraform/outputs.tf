@@ -1,4 +1,4 @@
-# terraform/outputs.tf - Fixed to match available resources
+# terraform/outputs.tf - Fixed to remove domain reference
 
 # Output important resource information
 output "images_bucket_name" {
@@ -82,11 +82,6 @@ output "cognito_user_pool_client_id" {
 output "cognito_identity_pool_id" {
   description = "ID of the Cognito Identity Pool"
   value       = aws_cognito_identity_pool.main.id
-}
-
-output "cognito_domain" {
-  description = "Cognito User Pool Domain"
-  value       = aws_cognito_user_pool_domain.main.domain
 }
 
 output "cognito_region" {

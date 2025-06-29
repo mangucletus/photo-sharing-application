@@ -6,18 +6,21 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Photo Sharing App</title>
 
-    <!-- AWS Amplify Core -->
-    <script src="https://unpkg.com/@aws-amplify/core@5.8.5/dist/umd/aws-amplify-core.min.js"></script>
-    <script src="https://unpkg.com/@aws-amplify/auth@5.6.5/dist/umd/aws-amplify-auth.min.js"></script>
+    <!-- React 18 -->
+    <script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+    <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
 
-    <!-- AWS Amplify UI for React (modern version) -->
-    <script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
-    <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
-    <script src="https://unpkg.com/@aws-amplify/ui-react@5.3.0/dist/umd/aws-amplify-ui-react.min.js"></script>
-    <link rel="stylesheet" href="https://unpkg.com/@aws-amplify/ui-react@5.3.0/dist/styles.css" />
+    <!-- AWS Amplify -->
+    <script src="https://unpkg.com/aws-amplify@5.3.11/dist/aws-amplify.min.js"></script>
+
+    <!-- Amplify UI React -->
+    <script src="https://unpkg.com/@aws-amplify/ui-react@5.3.1/dist/umd/aws-amplify-ui-react.min.js"></script>
+    <link rel="stylesheet" href="https://unpkg.com/@aws-amplify/ui-react@5.3.1/dist/styles.css" />
+
+    <!-- Babel for JSX -->
+    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
 
     <style>
-        /* Modern CSS styling for the photo sharing app */
         * {
             margin: 0;
             padding: 0;
@@ -26,263 +29,29 @@
 
         body {
             font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
-            line-height: 1.6;
-            color: #333;
             background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
             min-height: 100vh;
         }
 
-        /* Authentication container styling */
-        .auth-container {
+        /* Loading screen */
+        .loading-screen {
             display: flex;
             justify-content: center;
             align-items: center;
             min-height: 100vh;
-            padding: 20px;
-        }
-
-        .auth-wrapper {
-            background: rgba(255, 255, 255, 0.95);
-            padding: 40px;
-            border-radius: 15px;
-            box-shadow: 0 10px 30px rgba(0, 0, 0, 0.2);
-            backdrop-filter: blur(10px);
-            max-width: 500px;
-            width: 100%;
-        }
-
-        .auth-header {
-            text-align: center;
-            margin-bottom: 30px;
-        }
-
-        .auth-header h1 {
-            color: #667eea;
-            margin-bottom: 10px;
-            font-size: 2rem;
-        }
-
-        .auth-header p {
-            color: #666;
-            font-size: 1.1rem;
-        }
-
-        /* Override Amplify UI styles */
-        [data-amplify-authenticator] {
-            --amplify-components-button-primary-background-color: #667eea;
-            --amplify-components-button-primary-border-color: #667eea;
-            --amplify-components-button-primary-hover-background-color: #764ba2;
-            --amplify-components-tabs-item-active-border-color: #667eea;
-            --amplify-components-tabs-item-active-color: #667eea;
-            --amplify-components-fieldcontrol-focus-box-shadow: 0 0 0 2px rgba(102, 126, 234, 0.3);
-        }
-
-        /* Main app styling */
-        .container {
-            max-width: 1200px;
-            margin: 0 auto;
-            padding: 20px;
-        }
-
-        .header {
-            text-align: center;
-            margin-bottom: 40px;
-            color: white;
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-            flex-wrap: wrap;
-            gap: 20px;
-        }
-
-        .header-content h1 {
-            font-size: 2.5rem;
-            margin-bottom: 10px;
-            text-shadow: 2px 2px 4px rgba(0, 0, 0, 0.3);
-        }
-
-        .header-content p {
-            font-size: 1.1rem;
-            opacity: 0.9;
-        }
-
-        .user-info {
-            background: rgba(255, 255, 255, 0.1);
-            padding: 15px;
-            border-radius: 10px;
-            color: white;
-            min-width: 200px;
-        }
-
-        .user-email {
-            font-weight: 600;
-            margin-bottom: 10px;
-        }
-
-        .logout-btn {
-            background: rgba(255, 255, 255, 0.2);
-            color: white;
-            border: 1px solid rgba(255, 255, 255, 0.3);
-            padding: 8px 16px;
-            border-radius: 20px;
-            cursor: pointer;
-            font-size: 0.9rem;
-            transition: all 0.3s ease;
-        }
-
-        .logout-btn:hover {
-            background: rgba(255, 255, 255, 0.3);
-        }
-
-        .upload-section {
-            background: rgba(255, 255, 255, 0.95);
-            padding: 30px;
-            border-radius: 15px;
-            box-shadow: 0 10px 30px rgba(0, 0, 0, 0.2);
-            margin-bottom: 40px;
-            backdrop-filter: blur(10px);
-        }
-
-        .upload-area {
-            border: 2px dashed #667eea;
-            border-radius: 10px;
-            padding: 40px;
-            text-align: center;
-            transition: all 0.3s ease;
-            cursor: pointer;
-        }
-
-        .upload-area:hover {
-            border-color: #764ba2;
-            background-color: #f8f9ff;
-        }
-
-        .upload-area.dragover {
-            border-color: #764ba2;
-            background-color: #f0f4ff;
-            transform: scale(1.02);
-        }
-
-        .upload-icon {
-            font-size: 3rem;
-            color: #667eea;
-            margin-bottom: 20px;
-        }
-
-        .file-input {
-            display: none;
-        }
-
-        .upload-button,
-        .btn {
             background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
             color: white;
-            border: none;
-            padding: 12px 30px;
-            border-radius: 25px;
-            cursor: pointer;
-            font-size: 1rem;
-            font-weight: 600;
-            transition: all 0.3s ease;
-            text-transform: uppercase;
-            letter-spacing: 1px;
-        }
-
-        .upload-button:hover,
-        .btn:hover {
-            transform: translateY(-2px);
-            box-shadow: 0 5px 15px rgba(102, 126, 234, 0.4);
-        }
-
-        .upload-button:disabled {
-            opacity: 0.6;
-            cursor: not-allowed;
-            transform: none;
-        }
-
-        .gallery-section {
-            background: rgba(255, 255, 255, 0.95);
-            padding: 30px;
-            border-radius: 15px;
-            box-shadow: 0 10px 30px rgba(0, 0, 0, 0.2);
-            backdrop-filter: blur(10px);
-        }
-
-        .gallery-header {
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-            margin-bottom: 30px;
-            flex-wrap: wrap;
-            gap: 20px;
-        }
-
-        .gallery-header h2 {
-            color: #333;
-            font-size: 1.8rem;
-        }
-
-        .gallery {
-            display: grid;
-            grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
-            gap: 20px;
-        }
-
-        .image-card {
-            background: white;
-            border-radius: 10px;
-            overflow: hidden;
-            box-shadow: 0 5px 15px rgba(0, 0, 0, 0.1);
-            transition: all 0.3s ease;
-            cursor: pointer;
-        }
-
-        .image-card:hover {
-            transform: translateY(-5px);
-            box-shadow: 0 10px 25px rgba(0, 0, 0, 0.2);
-        }
-
-        .image-card img {
-            width: 100%;
-            height: 200px;
-            object-fit: cover;
-            transition: transform 0.3s ease;
-        }
-
-        .image-card:hover img {
-            transform: scale(1.05);
-        }
-
-        .image-info {
-            padding: 15px;
-        }
-
-        .image-name {
-            font-weight: 600;
-            color: #333;
-            margin-bottom: 5px;
-            font-size: 0.9rem;
-        }
-
-        .image-size {
-            color: #666;
-            font-size: 0.8rem;
-        }
-
-        .loading {
-            text-align: center;
-            padding: 40px;
-            color: #666;
+            font-size: 1.2rem;
         }
 
         .spinner {
-            border: 3px solid #f3f3f3;
-            border-top: 3px solid #667eea;
+            border: 4px solid rgba(255, 255, 255, 0.3);
+            border-top: 4px solid white;
             border-radius: 50%;
-            width: 30px;
-            height: 30px;
+            width: 40px;
+            height: 40px;
             animation: spin 1s linear infinite;
-            margin: 0 auto 20px;
+            margin-right: 15px;
         }
 
         @keyframes spin {
@@ -295,40 +64,283 @@
             }
         }
 
-        .error-message {
-            background: #ff6b6b;
-            color: white;
-            padding: 15px;
-            border-radius: 5px;
-            margin: 20px 0;
-            text-align: center;
+        /* Auth container */
+        .auth-container {
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            min-height: 100vh;
+            padding: 20px;
         }
 
-        .success-message {
-            background: #51cf66;
-            color: white;
-            padding: 15px;
-            border-radius: 5px;
-            margin: 20px 0;
+        .auth-wrapper {
+            background: rgba(255, 255, 255, 0.95);
+            padding: 40px;
+            border-radius: 15px;
+            box-shadow: 0 15px 35px rgba(0, 0, 0, 0.1);
+            backdrop-filter: blur(10px);
+            max-width: 450px;
+            width: 100%;
+        }
+
+        .auth-header {
             text-align: center;
+            margin-bottom: 30px;
+        }
+
+        .auth-header h1 {
+            color: #667eea;
+            margin-bottom: 10px;
+            font-size: 2.2rem;
+        }
+
+        .auth-header p {
+            color: #666;
+            font-size: 1rem;
+        }
+
+        /* Override Amplify UI styles */
+        [data-amplify-authenticator] {
+            --amplify-components-button-primary-background-color: #667eea;
+            --amplify-components-button-primary-border-color: #667eea;
+            --amplify-components-button-primary-hover-background-color: #764ba2;
+            --amplify-components-tabs-item-active-border-color: #667eea;
+            --amplify-components-tabs-item-active-color: #667eea;
+            --amplify-components-fieldcontrol-focus-box-shadow: 0 0 0 2px rgba(102, 126, 234, 0.25);
+        }
+
+        /* Main app container */
+        .app-container {
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 20px;
+        }
+
+        /* Header */
+        .app-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 40px;
+            color: white;
+            flex-wrap: wrap;
+            gap: 20px;
+        }
+
+        .header-content h1 {
+            font-size: 2.5rem;
+            margin-bottom: 5px;
+            text-shadow: 2px 2px 4px rgba(0, 0, 0, 0.3);
+        }
+
+        .header-content p {
+            font-size: 1.1rem;
+            opacity: 0.9;
+        }
+
+        .user-info {
+            background: rgba(255, 255, 255, 0.15);
+            padding: 15px 20px;
+            border-radius: 12px;
+            color: white;
+            backdrop-filter: blur(10px);
+            border: 1px solid rgba(255, 255, 255, 0.2);
+        }
+
+        .user-email {
+            font-weight: 600;
+            margin-bottom: 10px;
+            font-size: 0.95rem;
+        }
+
+        .sign-out-btn {
+            background: rgba(255, 255, 255, 0.2);
+            color: white;
+            border: 1px solid rgba(255, 255, 255, 0.3);
+            padding: 8px 16px;
+            border-radius: 20px;
+            cursor: pointer;
+            font-size: 0.9rem;
+            transition: all 0.3s ease;
+        }
+
+        .sign-out-btn:hover {
+            background: rgba(255, 255, 255, 0.3);
+        }
+
+        /* Content sections */
+        .content-section {
+            background: rgba(255, 255, 255, 0.95);
+            padding: 30px;
+            border-radius: 15px;
+            box-shadow: 0 10px 30px rgba(0, 0, 0, 0.1);
+            margin-bottom: 30px;
+            backdrop-filter: blur(10px);
+        }
+
+        .section-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 25px;
+            flex-wrap: wrap;
+            gap: 15px;
+        }
+
+        .section-header h2 {
+            color: #333;
+            font-size: 1.8rem;
+            margin: 0;
+        }
+
+        /* Upload area */
+        .upload-area {
+            border: 2px dashed #667eea;
+            border-radius: 12px;
+            padding: 40px;
+            text-align: center;
+            cursor: pointer;
+            transition: all 0.3s ease;
+        }
+
+        .upload-area:hover,
+        .upload-area.dragover {
+            border-color: #764ba2;
+            background-color: #f8f9ff;
+            transform: translateY(-2px);
+        }
+
+        .upload-icon {
+            font-size: 3rem;
+            margin-bottom: 15px;
+        }
+
+        .upload-area h3 {
+            color: #333;
+            margin-bottom: 10px;
+        }
+
+        .upload-area p {
+            color: #666;
+            font-size: 0.95rem;
+        }
+
+        .file-input {
+            display: none;
+        }
+
+        /* Buttons */
+        .btn {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            border: none;
+            padding: 12px 24px;
+            border-radius: 8px;
+            cursor: pointer;
+            font-size: 1rem;
+            font-weight: 600;
+            transition: all 0.3s ease;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }
+
+        .btn:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 8px 20px rgba(102, 126, 234, 0.3);
+        }
+
+        .btn:disabled {
+            opacity: 0.6;
+            cursor: not-allowed;
+            transform: none;
+        }
+
+        /* Progress bar */
+        .progress-container {
+            margin: 20px 0;
+            display: none;
         }
 
         .progress-bar {
             width: 100%;
-            height: 4px;
+            height: 6px;
             background: #e9ecef;
-            border-radius: 2px;
+            border-radius: 3px;
             overflow: hidden;
-            margin: 20px 0;
         }
 
         .progress-fill {
             height: 100%;
             background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
             transition: width 0.3s ease;
+            width: 0%;
         }
 
-        /* Modal styles for image preview */
+        /* Messages */
+        .message {
+            padding: 15px 20px;
+            border-radius: 8px;
+            margin: 20px 0;
+            font-weight: 500;
+        }
+
+        .message.success {
+            background: #d4edda;
+            color: #155724;
+            border: 1px solid #c3e6cb;
+        }
+
+        .message.error {
+            background: #f8d7da;
+            color: #721c24;
+            border: 1px solid #f5c6cb;
+        }
+
+        /* Gallery */
+        .gallery {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(250px, 1fr));
+            gap: 20px;
+        }
+
+        .image-card {
+            background: white;
+            border-radius: 12px;
+            overflow: hidden;
+            box-shadow: 0 4px 15px rgba(0, 0, 0, 0.1);
+            transition: all 0.3s ease;
+            cursor: pointer;
+        }
+
+        .image-card:hover {
+            transform: translateY(-5px);
+            box-shadow: 0 8px 25px rgba(0, 0, 0, 0.15);
+        }
+
+        .image-card img {
+            width: 100%;
+            height: 200px;
+            object-fit: cover;
+        }
+
+        .image-info {
+            padding: 15px;
+        }
+
+        .image-name {
+            font-weight: 600;
+            color: #333;
+            margin-bottom: 5px;
+            font-size: 0.9rem;
+            word-break: break-all;
+        }
+
+        .image-size {
+            color: #666;
+            font-size: 0.8rem;
+        }
+
+        /* Modal */
         .modal {
             display: none;
             position: fixed;
@@ -340,123 +352,86 @@
             background-color: rgba(0, 0, 0, 0.9);
         }
 
+        .modal.active {
+            display: flex;
+            justify-content: center;
+            align-items: center;
+        }
+
         .modal-content {
-            margin: auto;
-            display: block;
-            width: 80%;
-            max-width: 700px;
-            max-height: 80%;
+            max-width: 90%;
+            max-height: 90%;
             object-fit: contain;
         }
 
-        .close {
+        .close-modal {
             position: absolute;
-            top: 15px;
+            top: 20px;
             right: 35px;
             color: #f1f1f1;
             font-size: 40px;
             font-weight: bold;
             cursor: pointer;
+            z-index: 1001;
         }
 
-        .close:hover {
-            color: #bbb;
+        .close-modal:hover {
+            color: #ddd;
         }
 
-        /* Hide content until loaded */
-        .main-app {
-            display: none;
+        /* Empty state */
+        .empty-state {
+            text-align: center;
+            padding: 60px 20px;
+            color: #666;
         }
 
-        .auth-page {
-            display: block;
+        .empty-state h3 {
+            margin-bottom: 10px;
+            color: #333;
         }
 
+        /* Responsive */
         @media (max-width: 768px) {
-            .container {
-                padding: 10px;
+            .app-container {
+                padding: 15px;
             }
 
-            .header {
+            .app-header {
                 flex-direction: column;
+                text-align: center;
             }
 
             .header-content h1 {
                 font-size: 2rem;
             }
 
+            .content-section {
+                padding: 20px;
+            }
+
             .gallery {
-                grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+                grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
                 gap: 15px;
             }
 
-            .upload-section,
-            .gallery-section {
-                padding: 20px;
+            .upload-area {
+                padding: 30px 20px;
             }
         }
     </style>
 </head>
 
 <body>
-    <!-- React Root for Amplify Authenticator -->
-    <div id="auth-root"></div>
+    <div id="root"></div>
 
-    <!-- Main Application (hidden until authenticated) -->
-    <div id="mainApp" class="main-app">
-        <div class="container">
-            <!-- Header Section -->
-            <div class="header">
-                <div class="header-content">
-                    <h1>📸 Photo Sharing App</h1>
-                    <p>Upload, resize, and share your photos with automatic thumbnail generation</p>
-                </div>
-                <div class="user-info">
-                    <div class="user-email" id="userEmail">Loading...</div>
-                    <button class="logout-btn" onclick="handleSignOut()">Sign Out</button>
-                </div>
-            </div>
+    <script type="text/babel">
+        const { useState, useEffect, useRef } = React;
+        const { Amplify, Auth } = window.aws_amplify_core;
+        const { Authenticator, useAuthenticator } = window.AmplifyUIReact;
 
-            <!-- Upload Section -->
-            <div class="upload-section">
-                <div class="upload-area" id="uploadArea">
-                    <div class="upload-icon">☁️</div>
-                    <h3>Drop your images here or click to browse</h3>
-                    <p>Supports JPG, PNG, GIF, and other image formats</p>
-                    <input type="file" id="fileInput" class="file-input" multiple accept="image/*">
-                    <button class="upload-button" id="uploadButton">Choose Files</button>
-                </div>
-                <div class="progress-bar" id="progressContainer" style="display: none;">
-                    <div class="progress-fill" id="progressFill"></div>
-                </div>
-                <div id="messageContainer"></div>
-            </div>
-
-            <!-- Gallery Section -->
-            <div class="gallery-section">
-                <div class="gallery-header">
-                    <h2>📱 Photo Gallery</h2>
-                    <button class="btn" onclick="refreshGallery()">🔄 Refresh</button>
-                </div>
-                <div class="gallery" id="gallery">
-                    <div class="loading">
-                        <div class="spinner"></div>
-                        <p>Loading your photos...</p>
-                    </div>
-                </div>
-            </div>
-        </div>
-
-        <!-- Modal for image preview -->
-        <div id="imageModal" class="modal">
-            <span class="close" onclick="closeModal()">&times;</span>
-            <img class="modal-content" id="modalImage">
-        </div>
-    </div>
-
-    <script>
-        // Configuration - These will be replaced by the deployment script
-        const CONFIG = {
+        // Configuration - Will be replaced during deployment
+        const appConfig = {
             IMAGES_BUCKET: '{{IMAGES_BUCKET}}',
             THUMBNAILS_BUCKET: '{{THUMBNAILS_BUCKET}}',
             API_GATEWAY_URL: '{{API_GATEWAY_URL}}',
@@ -466,547 +441,505 @@
             COGNITO_IDENTITY_POOL_ID: '{{COGNITO_IDENTITY_POOL_ID}}'
         };
 
-        // Debug configuration
-        console.log('App Configuration:', CONFIG);
-
-        // Check if configuration is properly loaded
-        function validateConfig() {
-            const requiredFields = ['IMAGES_BUCKET', 'API_GATEWAY_URL', 'COGNITO_USER_POOL_ID'];
-            const missing = requiredFields.filter(field =>
-                !CONFIG[field] || CONFIG[field].includes('{{')
-            );
-
-            if (missing.length > 0) {
-                console.error('Missing configuration fields:', missing);
-                showMessage(`Configuration error: ${missing.join(', ')} not properly set`, 'error');
-                return false;
+        // Configure Amplify
+        Amplify.configure({
+            Auth: {
+                region: appConfig.AWS_REGION,
+                userPoolId: appConfig.COGNITO_USER_POOL_ID,
+                userPoolWebClientId: appConfig.COGNITO_USER_POOL_CLIENT_ID,
+                identityPoolId: appConfig.COGNITO_IDENTITY_POOL_ID,
+                mandatorySignIn: true,
+                authenticationFlowType: 'USER_PASSWORD_AUTH'
             }
-            return true;
-        }
-
-        // AWS Amplify Configuration
-        const { Amplify, Auth } = window.aws_amplify_core || {};
-
-        if (!Amplify || !Auth) {
-            console.error('Amplify not loaded properly');
-            showMessage('Application loading error. Please refresh the page.', 'error');
-        } else {
-            // Configure Amplify
-            Amplify.configure({
-                Auth: {
-                    region: CONFIG.AWS_REGION,
-                    userPoolId: CONFIG.COGNITO_USER_POOL_ID,
-                    userPoolWebClientId: CONFIG.COGNITO_USER_POOL_CLIENT_ID,
-                    identityPoolId: CONFIG.COGNITO_IDENTITY_POOL_ID,
-                    mandatorySignIn: true,
-                    authenticationFlowType: 'USER_PASSWORD_AUTH'
-                }
-            });
-        }
-
-        // Global variables
-        let currentUser = null;
-        let uploadedImages = [];
-        let authenticatorComponent = null;
-
-        // DOM elements
-        let uploadArea, fileInput, uploadButton, gallery, messageContainer, progressContainer, progressFill, modal, modalImage;
-
-        // Initialize the application
-        document.addEventListener('DOMContentLoaded', function () {
-            console.log('DOM loaded, initializing app...');
-
-            if (!validateConfig()) {
-                return;
-            }
-
-            initializeDOMElements();
-            initializeAmplifyAuthenticator();
         });
 
-        /**
-         * Initialize DOM elements
-         */
-        function initializeDOMElements() {
-            uploadArea = document.getElementById('uploadArea');
-            fileInput = document.getElementById('fileInput');
-            uploadButton = document.getElementById('uploadButton');
-            gallery = document.getElementById('gallery');
-            messageContainer = document.getElementById('messageContainer');
-            progressContainer = document.getElementById('progressContainer');
-            progressFill = document.getElementById('progressFill');
-            modal = document.getElementById('imageModal');
-            modalImage = document.getElementById('modalImage');
-        }
+        // Loading component
+        const LoadingScreen = ({ message = "Loading..." }) => (
+            <div className="loading-screen">
+                <div className="spinner"></div>
+                {message}
+            </div>
+        );
 
-        /**
-         * Initialize Amplify Authenticator using React
-         */
-        function initializeAmplifyAuthenticator() {
-            const { Authenticator } = window.AmplifyUIReact;
-            const { createElement: h } = React;
+        // Message component
+        const Message = ({ message, type, onClose }) => {
+            useEffect(() => {
+                if (message) {
+                    const timer = setTimeout(() => {
+                        onClose();
+                    }, 5000);
+                    return () => clearTimeout(timer);
+                }
+            }, [message, onClose]);
 
-            // Custom form fields for Amplify Authenticator
-            const formFields = {
-                signIn: {
-                    username: {
-                        label: 'Email',
-                        placeholder: 'Enter your email address',
-                        isRequired: true,
-                        order: 1
-                    },
-                    password: {
-                        label: 'Password',
-                        placeholder: 'Enter your password',
-                        isRequired: true,
-                        order: 2
-                    }
-                },
-                signUp: {
-                    email: {
-                        label: 'Email',
-                        placeholder: 'Enter your email address',
-                        isRequired: true,
-                        order: 1
-                    },
-                    password: {
-                        label: 'Password',
-                        placeholder: 'Create a strong password',
-                        isRequired: true,
-                        order: 2
-                    },
-                    confirm_password: {
-                        label: 'Confirm Password',
-                        placeholder: 'Confirm your password',
-                        isRequired: true,
-                        order: 3
-                    }
+            if (!message) return null;
+
+            return (
+                <div className={`message ${type}`}>
+                    {message}
+                </div>
+            );
+        };
+
+        // Upload component
+        const UploadSection = ({ onUploadSuccess, onMessage }) => {
+            const [uploading, setUploading] = useState(false);
+            const [progress, setProgress] = useState(0);
+            const fileInputRef = useRef(null);
+
+            const handleFileSelect = (event) => {
+                const files = Array.from(event.target.files);
+                if (files.length > 0) {
+                    handleUpload(files);
                 }
             };
 
-            // Authentication component
-            const AuthComponent = () => {
-                return h(Authenticator, {
-                    formFields: formFields,
-                    signUpAttributes: ['email'],
-                    hideSignUp: false,
-                    loginMechanisms: ['email'],
-                    variation: 'modal'
-                }, ({ signOut, user }) => {
-                    if (user) {
-                        currentUser = user;
-                        console.log('User authenticated:', user);
-                        showMainApp();
-                        return null;
-                    }
-                    return h('div', { className: 'auth-container' },
-                        h('div', { className: 'auth-wrapper' },
-                            h('div', { className: 'auth-header' },
-                                h('h1', null, '📸 Photo Sharing App'),
-                                h('p', null, 'Sign in to upload and share your photos')
-                            )
-                        )
-                    );
-                });
+            const handleDrop = (event) => {
+                event.preventDefault();
+                event.stopPropagation();
+
+                const files = Array.from(event.dataTransfer.files).filter(file =>
+                    file.type.startsWith('image/')
+                );
+
+                if (files.length > 0) {
+                    handleUpload(files);
+                } else {
+                    onMessage('Please drop only image files.', 'error');
+                }
             };
 
-            // Render the authenticator
-            const authRoot = document.getElementById('auth-root');
-            if (authRoot && window.ReactDOM) {
-                ReactDOM.render(h(AuthComponent), authRoot);
-            } else {
-                console.error('React or auth-root not found');
-                showMessage('Authentication component failed to load', 'error');
-            }
-        }
+            const handleDragOver = (event) => {
+                event.preventDefault();
+                event.stopPropagation();
+                event.currentTarget.classList.add('dragover');
+            };
 
-        /**
-         * Show the main application
-         */
-        function showMainApp() {
-            console.log('Showing main app for user:', currentUser);
+            const handleDragLeave = (event) => {
+                event.preventDefault();
+                event.stopPropagation();
+                event.currentTarget.classList.remove('dragover');
+            };
 
-            // Hide auth and show main app
-            document.getElementById('auth-root').style.display = 'none';
-            document.getElementById('mainApp').style.display = 'block';
-
-            // Update user email display
-            if (currentUser && currentUser.attributes && currentUser.attributes.email) {
-                document.getElementById('userEmail').textContent = currentUser.attributes.email;
-            }
-
-            initializeEventListeners();
-            loadGallery();
-        }
-
-        /**
-         * Handle sign out
-         */
-        async function handleSignOut() {
-            try {
-                await Auth.signOut();
-                currentUser = null;
-
-                // Show auth page again
-                document.getElementById('auth-root').style.display = 'block';
-                document.getElementById('mainApp').style.display = 'none';
-
-                console.log('User signed out successfully');
-            } catch (error) {
-                console.error('Error signing out:', error);
-                showMessage('Error signing out. Please try again.', 'error');
-            }
-        }
-
-        /**
-         * Initialize all event listeners
-         */
-        function initializeEventListeners() {
-            if (!uploadButton || !fileInput || !uploadArea) return;
-
-            // File input events
-            uploadButton.addEventListener('click', () => fileInput.click());
-            fileInput.addEventListener('change', handleFileSelect);
-
-            // Drag and drop events
-            uploadArea.addEventListener('dragover', handleDragOver);
-            uploadArea.addEventListener('dragleave', handleDragLeave);
-            uploadArea.addEventListener('drop', handleDrop);
-
-            // Prevent default drag behaviors
-            ['dragenter', 'dragover', 'dragleave', 'drop'].forEach(eventName => {
-                uploadArea.addEventListener(eventName, preventDefaults, false);
-                document.body.addEventListener(eventName, preventDefaults, false);
-            });
-
-            // Modal events
-            window.addEventListener('click', function (event) {
-                if (event.target === modal) {
-                    closeModal();
-                }
-            });
-        }
-
-        /**
-         * Prevent default drag behaviors
-         */
-        function preventDefaults(e) {
-            e.preventDefault();
-            e.stopPropagation();
-        }
-
-        /**
-         * Handle drag over event
-         */
-        function handleDragOver(e) {
-            uploadArea.classList.add('dragover');
-        }
-
-        /**
-         * Handle drag leave event
-         */
-        function handleDragLeave(e) {
-            uploadArea.classList.remove('dragover');
-        }
-
-        /**
-         * Handle drop event
-         */
-        function handleDrop(e) {
-            uploadArea.classList.remove('dragover');
-            const files = e.dataTransfer.files;
-            handleFiles(files);
-        }
-
-        /**
-         * Handle file selection
-         */
-        function handleFileSelect(e) {
-            const files = e.target.files;
-            handleFiles(files);
-        }
-
-        /**
-         * Process selected files
-         */
-        function handleFiles(files) {
-            const imageFiles = Array.from(files).filter(file => file.type.startsWith('image/'));
-
-            if (imageFiles.length === 0) {
-                showMessage('Please select valid image files.', 'error');
-                return;
-            }
-
-            if (imageFiles.length > 10) {
-                showMessage('Please select no more than 10 images at a time.', 'error');
-                return;
-            }
-
-            uploadFiles(imageFiles);
-        }
-
-        /**
-         * Upload files using API Gateway with Cognito authentication
-         */
-        async function uploadFiles(files) {
-            if (!currentUser) {
-                showMessage('Please sign in to upload files.', 'error');
-                return;
-            }
-
-            showProgress(true);
-            let successCount = 0;
-            let errorCount = 0;
-
-            for (let i = 0; i < files.length; i++) {
-                const file = files[i];
-                const progress = ((i + 1) / files.length) * 100;
-                updateProgress(progress);
-
-                try {
-                    await uploadSingleFile(file);
-                    successCount++;
-                } catch (error) {
-                    console.error('Upload failed for', file.name, error);
-                    errorCount++;
-                }
-            }
-
-            showProgress(false);
-
-            if (successCount > 0) {
-                showMessage(`Successfully uploaded ${successCount} image(s)!`, 'success');
-                setTimeout(() => {
-                    loadGallery();
-                }, 3000);
-            }
-
-            if (errorCount > 0) {
-                showMessage(`Failed to upload ${errorCount} image(s).`, 'error');
-            }
-
-            // Clear file input
-            fileInput.value = '';
-        }
-
-        /**
-         * Upload a single file using API Gateway with authentication
-         */
-        async function uploadSingleFile(file) {
-            try {
-                const session = await Auth.currentSession();
-                const idToken = session.getIdToken().getJwtToken();
-
-                // Step 1: Get presigned URL from API Gateway
-                const uploadResponse = await fetch(`${CONFIG.API_GATEWAY_URL}/images/upload`, {
-                    method: 'POST',
-                    headers: {
-                        'Content-Type': 'application/json',
-                        'Authorization': `Bearer ${idToken}`
-                    },
-                    body: JSON.stringify({
-                        filename: file.name,
-                        contentType: file.type
-                    })
-                });
-
-                if (!uploadResponse.ok) {
-                    const errorText = await uploadResponse.text();
-                    throw new Error(`Failed to get upload URL: ${uploadResponse.status} - ${errorText}`);
-                }
-
-                const uploadData = await uploadResponse.json();
-                const presignedUrl = uploadData.uploadUrl;
-
-                // Step 2: Upload file using presigned URL
-                const fileUploadResponse = await fetch(presignedUrl, {
-                    method: 'PUT',
-                    body: file,
-                    headers: {
-                        'Content-Type': file.type
-                    }
-                });
-
-                if (!fileUploadResponse.ok) {
-                    throw new Error(`Upload failed: ${fileUploadResponse.status}`);
-                }
-
-                return fileUploadResponse;
-
-            } catch (error) {
-                console.error('Upload error:', error);
-                throw error;
-            }
-        }
-
-        /**
-         * Load and display gallery images from API
-         */
-        async function loadGallery() {
-            if (!currentUser) return;
-
-            try {
-                showLoading(true);
-
-                const session = await Auth.currentSession();
-                const idToken = session.getIdToken().getJwtToken();
-
-                const response = await fetch(`${CONFIG.API_GATEWAY_URL}/images/list`, {
-                    method: 'GET',
-                    headers: {
-                        'Content-Type': 'application/json',
-                        'Authorization': `Bearer ${idToken}`
-                    }
-                });
-
-                if (!response.ok) {
-                    const errorText = await response.text();
-                    throw new Error(`API request failed: ${response.status} - ${errorText}`);
-                }
-
-                const data = await response.json();
-                const images = data.images || [];
-
-                if (images.length === 0) {
-                    gallery.innerHTML = `
-                        <div class="loading">
-                            <p>No photos yet. Upload some images to get started!</p>
-                        </div>
-                    `;
+            const handleUpload = async (files) => {
+                if (files.length === 0 || files.length > 10) {
+                    onMessage('Please select 1-10 image files.', 'error');
                     return;
                 }
 
-                displayImages(images);
+                setUploading(true);
+                setProgress(0);
 
-            } catch (error) {
-                console.error('Error loading gallery:', error);
-                gallery.innerHTML = `
-                    <div class="loading">
-                        <p>Error loading gallery: ${error.message}</p>
-                        <button class="btn" onclick="loadGallery()">Retry</button>
+                let successCount = 0;
+                let errorCount = 0;
+
+                for (let i = 0; i < files.length; i++) {
+                    const file = files[i];
+                    setProgress(((i + 1) / files.length) * 100);
+
+                    try {
+                        await uploadSingleFile(file);
+                        successCount++;
+                    } catch (error) {
+                        console.error('Upload failed for', file.name, error);
+                        errorCount++;
+                    }
+                }
+
+                setUploading(false);
+                setProgress(0);
+
+                if (successCount > 0) {
+                    onMessage(`Successfully uploaded ${successCount} image(s)!`, 'success');
+                    onUploadSuccess();
+                }
+
+                if (errorCount > 0) {
+                    onMessage(`Failed to upload ${errorCount} image(s).`, 'error');
+                }
+
+                // Clear file input
+                if (fileInputRef.current) {
+                    fileInputRef.current.value = '';
+                }
+            };
+
+            const uploadSingleFile = async (file) => {
+                try {
+                    const session = await Auth.currentSession();
+                    const idToken = session.getIdToken().getJwtToken();
+
+                    // Get presigned URL
+                    const uploadResponse = await fetch(`${appConfig.API_GATEWAY_URL}/images/upload`, {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json',
+                            'Authorization': `Bearer ${idToken}`
+                        },
+                        body: JSON.stringify({
+                            filename: file.name,
+                            contentType: file.type
+                        })
+                    });
+
+                    if (!uploadResponse.ok) {
+                        const errorText = await uploadResponse.text();
+                        throw new Error(`Upload request failed: ${uploadResponse.status} - ${errorText}`);
+                    }
+
+                    const uploadData = await uploadResponse.json();
+
+                    // Upload file using presigned URL
+                    const fileUploadResponse = await fetch(uploadData.uploadUrl, {
+                        method: 'PUT',
+                        body: file,
+                        headers: {
+                            'Content-Type': file.type
+                        }
+                    });
+
+                    if (!fileUploadResponse.ok) {
+                        throw new Error(`File upload failed: ${fileUploadResponse.status}`);
+                    }
+
+                    return fileUploadResponse;
+                } catch (error) {
+                    console.error('Upload error:', error);
+                    throw error;
+                }
+            };
+
+            return (
+                <div className="content-section">
+                    <div className="section-header">
+                        <h2>📤 Upload Photos</h2>
                     </div>
-                `;
-            }
-        }
 
-        /**
-         * Display images in the gallery
-         */
-        function displayImages(images) {
-            const imageCards = images.map(image => `
-                <div class="image-card" onclick="openModal('${image.thumbnailUrl}')">
-                    <img src="${image.thumbnailUrl}" 
-                         alt="${image.originalFilename}" 
-                         loading="lazy"
-                         onerror="this.parentElement.style.display='none'">
-                    <div class="image-info">
-                        <div class="image-name">${image.originalFilename}</div>
-                        <div class="image-size">${formatFileSize(image.sizeBytes || 0)}</div>
+                    <div
+                        className="upload-area"
+                        onClick={() => fileInputRef.current?.click()}
+                        onDrop={handleDrop}
+                        onDragOver={handleDragOver}
+                        onDragLeave={handleDragLeave}
+                    >
+                        <div className="upload-icon">☁️</div>
+                        <h3>Drop your images here or click to browse</h3>
+                        <p>Supports JPG, PNG, GIF, and other image formats (max 10 files)</p>
+                        <input
+                            ref={fileInputRef}
+                            type="file"
+                            className="file-input"
+                            multiple
+                            accept="image/*"
+                            onChange={handleFileSelect}
+                            disabled={uploading}
+                        />
+                        <br /><br />
+                        <button className="btn" disabled={uploading}>
+                            {uploading ? 'Uploading...' : 'Choose Files'}
+                        </button>
+                    </div>
+
+                    {uploading && (
+                        <div className="progress-container" style={{ display: 'block' }}>
+                            <div className="progress-bar">
+                                <div
+                                    className="progress-fill"
+                                    style={{ width: `${progress}%` }}
+                                ></div>
+                            </div>
+                            <p style={{ textAlign: 'center', marginTop: '10px', color: '#666' }}>
+                                Uploading... {Math.round(progress)}%
+                            </p>
+                        </div>
+                    )}
+                </div>
+            );
+        };
+
+        // Gallery component
+        const Gallery = ({ refreshTrigger, onMessage }) => {
+            const [images, setImages] = useState([]);
+            const [loading, setLoading] = useState(true);
+            const [selectedImage, setSelectedImage] = useState(null);
+
+            useEffect(() => {
+                loadImages();
+            }, [refreshTrigger]);
+
+            const loadImages = async () => {
+                setLoading(true);
+                try {
+                    const session = await Auth.currentSession();
+                    const idToken = session.getIdToken().getJwtToken();
+
+                    const response = await fetch(`${appConfig.API_GATEWAY_URL}/images/list`, {
+                        method: 'GET',
+                        headers: {
+                            'Content-Type': 'application/json',
+                            'Authorization': `Bearer ${idToken}`
+                        }
+                    });
+
+                    if (!response.ok) {
+                        const errorText = await response.text();
+                        throw new Error(`Failed to load images: ${response.status} - ${errorText}`);
+                    }
+
+                    const data = await response.json();
+                    setImages(data.images || []);
+                } catch (error) {
+                    console.error('Error loading images:', error);
+                    onMessage(`Error loading images: ${error.message}`, 'error');
+                } finally {
+                    setLoading(false);
+                }
+            };
+
+            const formatFileSize = (bytes) => {
+                if (bytes === 0) return '0 Bytes';
+                const k = 1024;
+                const sizes = ['Bytes', 'KB', 'MB', 'GB'];
+                const i = Math.floor(Math.log(bytes) / Math.log(k));
+                return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
+            };
+
+            const openModal = (imageUrl) => {
+                setSelectedImage(imageUrl);
+            };
+
+            const closeModal = () => {
+                setSelectedImage(null);
+            };
+
+            if (loading) {
+                return (
+                    <div className="content-section">
+                        <div className="section-header">
+                            <h2>📱 Photo Gallery</h2>
+                        </div>
+                        <LoadingScreen message="Loading your photos..." />
+                    </div>
+                );
+            }
+
+            return (
+                <div className="content-section">
+                    <div className="section-header">
+                        <h2>📱 Photo Gallery</h2>
+                        <button className="btn" onClick={loadImages}>
+                            🔄 Refresh
+                        </button>
+                    </div>
+
+                    {images.length === 0 ? (
+                        <div className="empty-state">
+                            <h3>No photos yet</h3>
+                            <p>Upload some images to get started!</p>
+                        </div>
+                    ) : (
+                        <div className="gallery">
+                            {images.map((image, index) => (
+                                <div
+                                    key={image.id || index}
+                                    className="image-card"
+                                    onClick={() => openModal(image.thumbnailUrl)}
+                                >
+                                    <img
+                                        src={image.thumbnailUrl}
+                                        alt={image.originalFilename}
+                                        loading="lazy"
+                                        onError={(e) => {
+                                            e.target.style.display = 'none';
+                                        }}
+                                    />
+                                    <div className="image-info">
+                                        <div className="image-name">
+                                            {image.originalFilename}
+                                        </div>
+                                        <div className="image-size">
+                                            {formatFileSize(image.sizeBytes || 0)}
+                                        </div>
+                                    </div>
+                                </div>
+                            ))}
+                        </div>
+                    )}
+
+                    {/* Modal */}
+                    {selectedImage && (
+                        <div className={`modal active`} onClick={closeModal}>
+                            <span className="close-modal" onClick={closeModal}>&times;</span>
+                            <img
+                                className="modal-content"
+                                src={selectedImage}
+                                alt="Full size"
+                                onClick={(e) => e.stopPropagation()}
+                            />
+                        </div>
+                    )}
+                </div>
+            );
+        };
+
+        
+        const AppContent = () => {
+            const { user, signOut } = useAuthenticator((context) => [context.user]);
+            const [message, setMessage] = useState({ text: '', type: '' });
+            const [refreshTrigger, setRefreshTrigger] = useState(0);
+
+            const handleMessage = (text, type) => {
+                setMessage({ text, type });
+            };
+
+            const clearMessage = () => {
+                setMessage({ text: '', type: '' });
+            };
+
+            const handleUploadSuccess = () => {
+                // Refresh gallery after successful upload
+                setTimeout(() => {
+                    setRefreshTrigger(prev => prev + 1);
+                }, 2000);
+            };
+
+            return (
+                <div className="app-container">
+                    {/* Header */}
+                    <div className="app-header">
+                        <div className="header-content">
+                            <h1>Photo Sharing App</h1>
+                            <p>Upload, resize, and share your photos with automatic thumbnail generation</p>
+                        </div>
+                        <div className="user-info">
+                            <div className="user-email">
+                                {user?.attributes?.email || 'User'}
+                            </div>
+                            <button className="sign-out-btn" onClick={signOut}>
+                                Sign Out
+                            </button>
+                        </div>
+                    </div>
+
+                    {/* Messages */}
+                    <Message
+                        message={message.text}
+                        type={message.type}
+                        onClose={clearMessage}
+                    />
+
+                    {/* Upload Section */}
+                    <UploadSection
+                        onUploadSuccess={handleUploadSuccess}
+                        onMessage={handleMessage}
+                    />
+
+                    {/* Gallery Section */}
+                    <Gallery
+                        refreshTrigger={refreshTrigger}
+                        onMessage={handleMessage}
+                    />
+                </div>
+            );
+        };
+
+        // Auth wrapper component
+        const AuthWrapper = () => {
+            return (
+                <div className="auth-container">
+                    <div className="auth-wrapper">
+                        <div className="auth-header">
+                            <h1>Photo Sharing App</h1>
+                            <p>Sign in to upload and share your photos</p>
+                        </div>
                     </div>
                 </div>
-            `).join('');
+            );
+        };
 
-            gallery.innerHTML = imageCards;
-        }
+        // Main App
+        const App = () => {
+            const [configValid, setConfigValid] = useState(false);
+            const [loading, setLoading] = useState(true);
 
-        /**
-         * Open modal with full-size image
-         */
-        function openModal(imageUrl) {
-            modal.style.display = 'block';
-            modalImage.src = imageUrl;
-        }
+            useEffect(() => {
+                // Validate configuration
+                const validateConfig = () => {
+                    const requiredFields = [
+                        'IMAGES_BUCKET', 'API_GATEWAY_URL', 'COGNITO_USER_POOL_ID',
+                        'COGNITO_USER_POOL_CLIENT_ID', 'AWS_REGION'
+                    ];
 
-        /**
-         * Close modal
-         */
-        function closeModal() {
-            modal.style.display = 'none';
-        }
+                    const missing = requiredFields.filter(field =>
+                        !appConfig[field] || appConfig[field].includes('{{')
+                    );
 
-        /**
-         * Refresh gallery
-         */
-        function refreshGallery() {
-            loadGallery();
-        }
+                    if (missing.length > 0) {
+                        console.error('Missing configuration fields:', missing);
+                        console.log('Current config:', appConfig);
+                        setConfigValid(false);
+                    } else {
+                        console.log('Configuration validated successfully');
+                        setConfigValid(true);
+                    }
 
-        /**
-         * Show/hide loading state
-         */
-        function showLoading(show) {
-            if (show) {
-                gallery.innerHTML = `
-                    <div class="loading">
-                        <div class="spinner"></div>
-                        <p>Loading your photos...</p>
+                    setLoading(false);
+                };
+
+                validateConfig();
+            }, []);
+
+            if (loading) {
+                return <LoadingScreen message="Initializing app..." />;
+            }
+
+            if (!configValid) {
+                return (
+                    <div className="loading-screen">
+                        <div style={{ textAlign: 'center' }}>
+                            <h2>⚠️ Configuration Error</h2>
+                            <p>The app is not properly configured. Please check deployment.</p>
+                        </div>
                     </div>
-                `;
-            }
-        }
-
-        /**
-         * Show/hide progress bar
-         */
-        function showProgress(show) {
-            progressContainer.style.display = show ? 'block' : 'none';
-            if (!show) {
-                updateProgress(0);
-            }
-        }
-
-        /**
-         * Update progress bar
-         */
-        function updateProgress(percentage) {
-            progressFill.style.width = percentage + '%';
-        }
-
-        /**
-         * Show message to user
-         */
-        function showMessage(message, type = 'info') {
-            const messageDiv = document.createElement('div');
-            messageDiv.className = `${type}-message`;
-            messageDiv.textContent = message;
-
-            if (!messageContainer) {
-                console.error('Message container not found');
-                return;
+                );
             }
 
-            messageContainer.innerHTML = '';
-            messageContainer.appendChild(messageDiv);
+            return (
+                <Authenticator
+                    signUpAttributes={['email']}
+                    loginMechanisms={['email']}
+                    components={{
+                        SignIn: {
+                            Header() {
+                                return (
+                                    <div className="auth-header">
+                                        <h1>Photo Sharing App</h1>
+                                        <p>Sign in to your account</p>
+                                    </div>
+                                );
+                            }
+                        },
+                        SignUp: {
+                            Header() {
+                                return (
+                                    <div className="auth-header">
+                                        <h1>Photo Sharing App</h1>
+                                        <p>Create your account</p>
+                                    </div>
+                                );
+                            }
+                        }
+                    }}
+                >
+                    {({ signOut, user }) => (
+                        user ? <AppContent /> : <AuthWrapper />
+                    )}
+                </Authenticator>
+            );
+        };
 
-            setTimeout(() => {
-                if (messageContainer.contains(messageDiv)) {
-                    messageContainer.removeChild(messageDiv);
-                }
-            }, 5000);
-        }
-
-        /**
-         * Format file size
-         */
-        function formatFileSize(bytes) {
-            if (bytes === 0) return '0 Bytes';
-            const k = 1024;
-            const sizes = ['Bytes', 'KB', 'MB', 'GB'];
-            const i = Math.floor(Math.log(bytes) / Math.log(k));
-            return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
-        }
-
-        // Global error handler
-        window.addEventListener('error', function (e) {
-            console.error('Global error:', e.error);
-            showMessage('An unexpected error occurred. Please check the console for details.', 'error');
-        });
-
-        // Handle unhandled promise rejections
-        window.addEventListener('unhandledrejection', function (e) {
-            console.error('Unhandled promise rejection:', e.reason);
-            showMessage('A network or authentication error occurred. Please try again.', 'error');
-        });
+        // Render the app
+        ReactDOM.render(<App />, document.getElementById('root'));
     </script>
 </body>
 
