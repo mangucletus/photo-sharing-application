@@ -5,6 +5,14 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Photo Sharing App</title>
+
+    <!-- AWS Amplify UI Web Components -->
+    <script type="module" src="https://unpkg.com/@aws-amplify/ui-components@latest/loader/index.es2017.js"></script>
+    <link rel="stylesheet" href="https://unpkg.com/@aws-amplify/ui-components@latest/dist/amplify-ui/amplify-ui.css" />
+
+    <!-- AWS Amplify -->
+    <script src="https://unpkg.com/aws-amplify@latest/dist/aws-amplify.min.js"></script>
+
     <style>
         /* Modern CSS styling for the photo sharing app */
         * {
@@ -21,6 +29,40 @@
             min-height: 100vh;
         }
 
+        /* Authentication page styling */
+        .auth-container {
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            min-height: 100vh;
+            padding: 20px;
+        }
+
+        .auth-wrapper {
+            background: rgba(255, 255, 255, 0.95);
+            padding: 40px;
+            border-radius: 15px;
+            box-shadow: 0 10px 30px rgba(0, 0, 0, 0.2);
+            backdrop-filter: blur(10px);
+            max-width: 400px;
+            width: 100%;
+        }
+
+        .auth-header {
+            text-align: center;
+            margin-bottom: 30px;
+        }
+
+        .auth-header h1 {
+            color: #667eea;
+            margin-bottom: 10px;
+        }
+
+        .auth-header p {
+            color: #666;
+        }
+
+        /* Main app styling */
         .container {
             max-width: 1200px;
             margin: 0 auto;
@@ -31,17 +73,48 @@
             text-align: center;
             margin-bottom: 40px;
             color: white;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
         }
 
-        .header h1 {
+        .header-content h1 {
             font-size: 2.5rem;
             margin-bottom: 10px;
             text-shadow: 2px 2px 4px rgba(0, 0, 0, 0.3);
         }
 
-        .header p {
+        .header-content p {
             font-size: 1.1rem;
             opacity: 0.9;
+        }
+
+        .user-info {
+            background: rgba(255, 255, 255, 0.1);
+            padding: 15px;
+            border-radius: 10px;
+            color: white;
+            min-width: 200px;
+        }
+
+        .user-email {
+            font-weight: 600;
+            margin-bottom: 10px;
+        }
+
+        .logout-btn {
+            background: rgba(255, 255, 255, 0.2);
+            color: white;
+            border: 1px solid rgba(255, 255, 255, 0.3);
+            padding: 8px 16px;
+            border-radius: 20px;
+            cursor: pointer;
+            font-size: 0.9rem;
+            transition: all 0.3s ease;
+        }
+
+        .logout-btn:hover {
+            background: rgba(255, 255, 255, 0.3);
         }
 
         .upload-section {
@@ -271,12 +344,32 @@
             color: #bbb;
         }
 
+        /* Hide main app until authenticated */
+        .main-app {
+            display: none;
+        }
+
+        .auth-page {
+            display: block;
+        }
+
+        /* Custom Amplify UI styling */
+        amplify-authenticator {
+            --amplify-components-authenticator-router-background-color: transparent;
+            --amplify-components-authenticator-router-border: none;
+        }
+
         @media (max-width: 768px) {
             .container {
                 padding: 10px;
             }
 
-            .header h1 {
+            .header {
+                flex-direction: column;
+                gap: 20px;
+            }
+
+            .header-content h1 {
                 font-size: 2rem;
             }
 
@@ -294,47 +387,78 @@
 </head>
 
 <body>
-    <div class="container">
-        <!-- Header Section -->
-        <div class="header">
-            <h1>Photo Sharing App</h1>
-            <p>Upload, resize, and share your photos with automatic thumbnail generation</p>
-        </div>
-
-        <!-- Upload Section -->
-        <div class="upload-section">
-            <div class="upload-area" id="uploadArea">
-                <div class="upload-icon">☁️</div>
-                <h3>Drop your images here or click to browse</h3>
-                <p>Supports JPG, PNG, GIF, and other image formats</p>
-                <input type="file" id="fileInput" class="file-input" multiple accept="image/*">
-                <button class="upload-button" id="uploadButton">Choose Files</button>
-            </div>
-            <div class="progress-bar" id="progressContainer" style="display: none;">
-                <div class="progress-fill" id="progressFill"></div>
-            </div>
-            <div id="messageContainer"></div>
-        </div>
-
-        <!-- Gallery Section -->
-        <div class="gallery-section">
-            <div class="gallery-header">
-                <h2>📱 Photo Gallery</h2>
-                <button class="btn" onclick="refreshGallery()">🔄 Refresh</button>
-            </div>
-            <div class="gallery" id="gallery">
-                <div class="loading">
-                    <div class="spinner"></div>
-                    <p>Loading your photos...</p>
+    <!-- Authentication Page -->
+    <div id="authPage" class="auth-page">
+        <div class="auth-container">
+            <div class="auth-wrapper">
+                <div class="auth-header">
+                    <h1>📸 Photo Sharing App</h1>
+                    <p>Sign in to upload and share your photos</p>
                 </div>
+                <amplify-authenticator>
+                    <div slot="sign-in">
+                        <amplify-sign-in header-text="Sign in to your account"></amplify-sign-in>
+                    </div>
+                    <div slot="sign-up">
+                        <amplify-sign-up header-text="Create your account" username-alias="email"
+                            password-field-description="Password must be at least 8 characters">
+                        </amplify-sign-up>
+                    </div>
+                </amplify-authenticator>
             </div>
         </div>
     </div>
 
-    <!-- Modal for image preview -->
-    <div id="imageModal" class="modal">
-        <span class="close" onclick="closeModal()">&times;</span>
-        <img class="modal-content" id="modalImage">
+    <!-- Main Application -->
+    <div id="mainApp" class="main-app">
+        <div class="container">
+            <!-- Header Section -->
+            <div class="header">
+                <div class="header-content">
+                    <h1>📸 Photo Sharing App</h1>
+                    <p>Upload, resize, and share your photos with automatic thumbnail generation</p>
+                </div>
+                <div class="user-info">
+                    <div class="user-email" id="userEmail">Loading...</div>
+                    <button class="logout-btn" onclick="signOut()">Sign Out</button>
+                </div>
+            </div>
+
+            <!-- Upload Section -->
+            <div class="upload-section">
+                <div class="upload-area" id="uploadArea">
+                    <div class="upload-icon">☁️</div>
+                    <h3>Drop your images here or click to browse</h3>
+                    <p>Supports JPG, PNG, GIF, and other image formats</p>
+                    <input type="file" id="fileInput" class="file-input" multiple accept="image/*">
+                    <button class="upload-button" id="uploadButton">Choose Files</button>
+                </div>
+                <div class="progress-bar" id="progressContainer" style="display: none;">
+                    <div class="progress-fill" id="progressFill"></div>
+                </div>
+                <div id="messageContainer"></div>
+            </div>
+
+            <!-- Gallery Section -->
+            <div class="gallery-section">
+                <div class="gallery-header">
+                    <h2>📱 Photo Gallery</h2>
+                    <button class="btn" onclick="refreshGallery()">🔄 Refresh</button>
+                </div>
+                <div class="gallery" id="gallery">
+                    <div class="loading">
+                        <div class="spinner"></div>
+                        <p>Loading your photos...</p>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Modal for image preview -->
+        <div id="imageModal" class="modal">
+            <span class="close" onclick="closeModal()">&times;</span>
+            <img class="modal-content" id="modalImage">
+        </div>
     </div>
 
     <script>
@@ -343,33 +467,135 @@
             IMAGES_BUCKET: '{{IMAGES_BUCKET}}',
             THUMBNAILS_BUCKET: '{{THUMBNAILS_BUCKET}}',
             API_GATEWAY_URL: '{{API_GATEWAY_URL}}',
-            AWS_REGION: 'eu-west-1'
+            AWS_REGION: '{{AWS_REGION}}',
+            COGNITO_USER_POOL_ID: '{{COGNITO_USER_POOL_ID}}',
+            COGNITO_USER_POOL_CLIENT_ID: '{{COGNITO_USER_POOL_CLIENT_ID}}',
+            COGNITO_IDENTITY_POOL_ID: '{{COGNITO_IDENTITY_POOL_ID}}'
         };
 
-        // DOM elements
-        const uploadArea = document.getElementById('uploadArea');
-        const fileInput = document.getElementById('fileInput');
-        const uploadButton = document.getElementById('uploadButton');
-        const gallery = document.getElementById('gallery');
-        const messageContainer = document.getElementById('messageContainer');
-        const progressContainer = document.getElementById('progressContainer');
-        const progressFill = document.getElementById('progressFill');
-        const modal = document.getElementById('imageModal');
-        const modalImage = document.getElementById('modalImage');
+        // AWS Amplify Configuration
+        const { Amplify, Auth } = window.aws_amplify_core;
+
+        Amplify.configure({
+            Auth: {
+                region: CONFIG.AWS_REGION,
+                userPoolId: CONFIG.COGNITO_USER_POOL_ID,
+                userPoolWebClientId: CONFIG.COGNITO_USER_POOL_CLIENT_ID,
+                identityPoolId: CONFIG.COGNITO_IDENTITY_POOL_ID,
+                mandatorySignIn: true,
+                authenticationFlowType: 'USER_PASSWORD_AUTH'
+            }
+        });
 
         // Global variables
+        let currentUser = null;
         let uploadedImages = [];
+
+        // DOM elements
+        let uploadArea, fileInput, uploadButton, gallery, messageContainer, progressContainer, progressFill, modal, modalImage;
 
         // Initialize the application
         document.addEventListener('DOMContentLoaded', function () {
+            initializeDOMElements();
+            checkAuthState();
+            initializeAmplifyUI();
+        });
+
+        /**
+         * Initialize DOM elements
+         */
+        function initializeDOMElements() {
+            uploadArea = document.getElementById('uploadArea');
+            fileInput = document.getElementById('fileInput');
+            uploadButton = document.getElementById('uploadButton');
+            gallery = document.getElementById('gallery');
+            messageContainer = document.getElementById('messageContainer');
+            progressContainer = document.getElementById('progressContainer');
+            progressFill = document.getElementById('progressFill');
+            modal = document.getElementById('imageModal');
+            modalImage = document.getElementById('modalImage');
+        }
+
+        /**
+         * Initialize Amplify UI components
+         */
+        function initializeAmplifyUI() {
+            const authenticator = document.querySelector('amplify-authenticator');
+
+            if (authenticator) {
+                authenticator.addEventListener('authStateChange', (e) => {
+                    const { authState, user } = e.detail;
+                    console.log('Auth state changed:', authState);
+
+                    if (authState === 'signedin') {
+                        currentUser = user;
+                        showMainApp();
+                    } else {
+                        currentUser = null;
+                        showAuthPage();
+                    }
+                });
+            }
+        }
+
+        /**
+         * Check current authentication state
+         */
+        async function checkAuthState() {
+            try {
+                const user = await Auth.currentAuthenticatedUser();
+                currentUser = user;
+                showMainApp();
+            } catch (error) {
+                console.log('Not authenticated');
+                showAuthPage();
+            }
+        }
+
+        /**
+         * Show the main application
+         */
+        function showMainApp() {
+            document.getElementById('authPage').style.display = 'none';
+            document.getElementById('mainApp').style.display = 'block';
+
+            // Update user email
+            if (currentUser && currentUser.attributes && currentUser.attributes.email) {
+                document.getElementById('userEmail').textContent = currentUser.attributes.email;
+            }
+
             initializeEventListeners();
             loadGallery();
-        });
+        }
+
+        /**
+         * Show the authentication page
+         */
+        function showAuthPage() {
+            document.getElementById('authPage').style.display = 'block';
+            document.getElementById('mainApp').style.display = 'none';
+        }
+
+        /**
+         * Sign out the current user
+         */
+        async function signOut() {
+            try {
+                await Auth.signOut();
+                currentUser = null;
+                showAuthPage();
+            } catch (error) {
+                console.error('Error signing out:', error);
+                showMessage('Error signing out. Please try again.', 'error');
+            }
+        }
 
         /**
          * Initialize all event listeners
          */
         function initializeEventListeners() {
+            if (!uploadButton || !fileInput || !uploadArea) return;
+
             // File input events
             uploadButton.addEventListener('click', () => fileInput.click());
             fileInput.addEventListener('change', handleFileSelect);
@@ -452,9 +678,14 @@
         }
 
         /**
-         * Upload files using API Gateway
+         * Upload files using API Gateway with Cognito authentication
          */
         async function uploadFiles(files) {
+            if (!currentUser) {
+                showMessage('Please sign in to upload files.', 'error');
+                return;
+            }
+
             showProgress(true);
             let successCount = 0;
             let errorCount = 0;
@@ -492,15 +723,20 @@
         }
 
         /**
-         * Upload a single file using API Gateway presigned URL
+         * Upload a single file using API Gateway with authentication
          */
         async function uploadSingleFile(file) {
             try {
+                // Get the current session to include in the request
+                const session = await Auth.currentSession();
+                const idToken = session.getIdToken().getJwtToken();
+
                 // Step 1: Get presigned URL from API Gateway
                 const uploadResponse = await fetch(`${CONFIG.API_GATEWAY_URL}/images/upload`, {
                     method: 'POST',
                     headers: {
-                        'Content-Type': 'application/json'
+                        'Content-Type': 'application/json',
+                        'Authorization': `Bearer ${idToken}`
                     },
                     body: JSON.stringify({
                         filename: file.name,
@@ -540,14 +776,21 @@
          * Load and display gallery images from API
          */
         async function loadGallery() {
+            if (!currentUser) return;
+
             try {
                 showLoading(true);
+
+                // Get the current session for authentication
+                const session = await Auth.currentSession();
+                const idToken = session.getIdToken().getJwtToken();
 
                 // Get list of images from API Gateway
                 const response = await fetch(`${CONFIG.API_GATEWAY_URL}/images/list`, {
                     method: 'GET',
                     headers: {
-                        'Content-Type': 'application/json'
+                        'Content-Type': 'application/json',
+                        'Authorization': `Bearer ${idToken}`
                     }
                 });
 
@@ -571,66 +814,6 @@
 
             } catch (error) {
                 console.error('Error loading gallery:', error);
-                // Fallback to direct S3 listing
-                await loadGalleryFallback();
-            }
-        }
-
-        /**
-         * Fallback method to load gallery directly from S3
-         */
-        async function loadGalleryFallback() {
-            try {
-                // Mock data for demonstration
-                const mockImages = [
-                    {
-                        id: 'sample1',
-                        originalFilename: 'sample1.jpg',
-                        thumbnailFilename: 'thumb-sample1.jpg',
-                        thumbnailUrl: `https://${CONFIG.THUMBNAILS_BUCKET}.s3.amazonaws.com/thumb-sample1.jpg`,
-                        sizeBytes: 15600
-                    },
-                    {
-                        id: 'sample2',
-                        originalFilename: 'sample2.jpg',
-                        thumbnailFilename: 'thumb-sample2.jpg',
-                        thumbnailUrl: `https://${CONFIG.THUMBNAILS_BUCKET}.s3.amazonaws.com/thumb-sample2.jpg`,
-                        sizeBytes: 19200
-                    },
-                    {
-                        id: 'sample3',
-                        originalFilename: 'sample3.jpg',
-                        thumbnailFilename: 'thumb-sample3.jpg',
-                        thumbnailUrl: `https://${CONFIG.THUMBNAILS_BUCKET}.s3.amazonaws.com/thumb-sample3.jpg`,
-                        sizeBytes: 12400
-                    }
-                ];
-
-                // Filter to only images that actually exist
-                const existingImages = [];
-                for (const image of mockImages) {
-                    try {
-                        const response = await fetch(image.thumbnailUrl, { method: 'HEAD' });
-                        if (response.ok) {
-                            existingImages.push(image);
-                        }
-                    } catch (error) {
-                        // Image doesn't exist, skip it
-                    }
-                }
-
-                if (existingImages.length === 0) {
-                    gallery.innerHTML = `
-                        <div class="loading">
-                            <p>No photos available. Upload some images to get started!</p>
-                        </div>
-                    `;
-                } else {
-                    displayImages(existingImages);
-                }
-
-            } catch (error) {
-                console.error('Fallback gallery loading failed:', error);
                 gallery.innerHTML = `
                     <div class="loading">
                         <p>Error loading gallery. Please try again.</p>
