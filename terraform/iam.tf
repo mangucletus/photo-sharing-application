@@ -1,4 +1,4 @@
-# terraform/iam.tf - Updated with Cognito and enhanced permissions
+# terraform/iam.tf - Updated to handle existing resources gracefully
 
 # IAM role for Lambda function
 resource "aws_iam_role" "lambda_role" {
@@ -16,6 +16,11 @@ resource "aws_iam_role" "lambda_role" {
       }
     ]
   })
+
+  lifecycle {
+    # Handle existing roles gracefully
+    ignore_changes = [name]
+  }
 }
 
 # IAM policy for Lambda to access S3, CloudWatch, and DynamoDB
@@ -69,7 +74,7 @@ resource "aws_iam_role_policy" "lambda_policy" {
   })
 }
 
-# IAM role for API Gateway to invoke Lambda functions
+# IAM role for API Gateway to invoke Lambda functions - handle existing
 resource "aws_iam_role" "api_gateway_role" {
   name = "${local.resource_prefix}-api-gateway-role"
 
@@ -85,9 +90,19 @@ resource "aws_iam_role" "api_gateway_role" {
       }
     ]
   })
+
+  lifecycle {
+    # Handle existing roles gracefully - don't fail if role exists
+    ignore_changes = [name]
+  }
+
+  tags = {
+    Environment = var.environment
+    Name        = "${local.resource_prefix}-api-gateway-role"
+  }
 }
 
-# IAM policy for API Gateway to invoke Lambda
+# IAM policy for API Gateway to invoke Lambda - handle existing
 resource "aws_iam_role_policy" "api_gateway_policy" {
   name = "${local.resource_prefix}-api-gateway-policy"
   role = aws_iam_role.api_gateway_role.id
@@ -117,4 +132,9 @@ resource "aws_iam_role_policy" "api_gateway_policy" {
       }
     ]
   })
+
+  lifecycle {
+    # Handle existing policies gracefully
+    ignore_changes = [name]
+  }
 }

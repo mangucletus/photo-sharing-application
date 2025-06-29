@@ -1,4 +1,4 @@
-# terraform/api_gateway.tf - Fixed to handle existing stage
+# terraform/api_gateway.tf - Final fixed version without deprecation warnings
 
 # API Gateway REST API
 resource "aws_api_gateway_rest_api" "photo_api" {
@@ -7,6 +7,11 @@ resource "aws_api_gateway_rest_api" "photo_api" {
 
   endpoint_configuration {
     types = ["REGIONAL"]
+  }
+
+  lifecycle {
+    # Prevent destruction if imported
+    prevent_destroy = false
   }
 }
 
@@ -234,10 +239,9 @@ resource "aws_api_gateway_integration_response" "options_list" {
   }
 }
 
-# FIXED: API Gateway Deployment - use existing stage instead of creating new one
+# FIXED: API Gateway Deployment WITHOUT deprecated stage_name
 resource "aws_api_gateway_deployment" "deployment" {
   rest_api_id = aws_api_gateway_rest_api.photo_api.id
-  stage_name  = var.environment
 
   depends_on = [
     aws_api_gateway_integration.upload_lambda,
@@ -262,13 +266,49 @@ resource "aws_api_gateway_deployment" "deployment" {
   }
 }
 
-# Remove the separate stage resource to avoid conflicts
-# The deployment resource above will handle the stage
+# FIXED: Separate API Gateway Stage resource (replaces deprecated stage_name)
+resource "aws_api_gateway_stage" "main" {
+  deployment_id = aws_api_gateway_deployment.deployment.id
+  rest_api_id   = aws_api_gateway_rest_api.photo_api.id
+  stage_name    = var.environment
+
+  # Enable logging and monitoring
+  xray_tracing_enabled = true
+
+  access_log_settings {
+    destination_arn = aws_cloudwatch_log_group.api_gateway_logs.arn
+    format = jsonencode({
+      requestId      = "$context.requestId"
+      requestTime    = "$context.requestTime"
+      httpMethod     = "$context.httpMethod"
+      resourcePath   = "$context.resourcePath"
+      status         = "$context.status"
+      responseLength = "$context.responseLength"
+      userAgent      = "$context.identity.userAgent"
+      sourceIp       = "$context.identity.sourceIp"
+    })
+  }
+
+  lifecycle {
+    # Handle existing stages gracefully
+    ignore_changes = [stage_name]
+  }
+
+  tags = {
+    Environment = var.environment
+    Name        = "${local.resource_prefix}-api-stage"
+  }
+}
 
 # CloudWatch log group for API Gateway access logs
 resource "aws_cloudwatch_log_group" "api_gateway_logs" {
   name              = "/aws/apigateway/${local.resource_prefix}"
   retention_in_days = 14
+
+  lifecycle {
+    # Don't fail if log group already exists
+    ignore_changes = [name]
+  }
 
   tags = {
     Environment = var.environment

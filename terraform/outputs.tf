@@ -1,4 +1,4 @@
-# terraform/outputs.tf - Updated with Cognito and DynamoDB table
+# terraform/outputs.tf - Updated to reference new stage resource
 
 # Output important resource information
 output "images_bucket_name" {
@@ -23,12 +23,13 @@ output "dynamodb_table_name" {
 
 output "frontend_url" {
   description = "URL of the frontend website"
-  value       = "http://${aws_s3_bucket_website_configuration.frontend.website_endpoint}"
+  value       = "https://${aws_s3_bucket_website_configuration.frontend.website_endpoint}"
 }
 
+# UPDATED: Reference the stage resource instead of deployment
 output "api_gateway_url" {
   description = "URL of the API Gateway"
-  value       = "https://${aws_api_gateway_rest_api.photo_api.id}.execute-api.${data.aws_region.current.name}.amazonaws.com/${var.environment}"
+  value       = "https://${aws_api_gateway_rest_api.photo_api.id}.execute-api.${data.aws_region.current.name}.amazonaws.com/${aws_api_gateway_stage.main.stage_name}"
 }
 
 output "lambda_function_name" {
@@ -56,14 +57,15 @@ output "thumbnails_bucket_url" {
   value       = "https://${aws_s3_bucket.thumbnails.bucket}.s3.amazonaws.com"
 }
 
+# UPDATED: Reference the stage resource
 output "upload_endpoint" {
   description = "API Gateway upload endpoint"
-  value       = "https://${aws_api_gateway_rest_api.photo_api.id}.execute-api.${data.aws_region.current.name}.amazonaws.com/${var.environment}/images/upload"
+  value       = "https://${aws_api_gateway_rest_api.photo_api.id}.execute-api.${data.aws_region.current.name}.amazonaws.com/${aws_api_gateway_stage.main.stage_name}/images/upload"
 }
 
 output "list_endpoint" {
   description = "API Gateway list endpoint"
-  value       = "https://${aws_api_gateway_rest_api.photo_api.id}.execute-api.${data.aws_region.current.name}.amazonaws.com/${var.environment}/images/list"
+  value       = "https://${aws_api_gateway_rest_api.photo_api.id}.execute-api.${data.aws_region.current.name}.amazonaws.com/${aws_api_gateway_stage.main.stage_name}/images/list"
 }
 
 # Cognito outputs
