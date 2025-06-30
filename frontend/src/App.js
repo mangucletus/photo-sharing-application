@@ -11,6 +11,7 @@ Amplify.configure({
     Cognito: {
       userPoolId: process.env.REACT_APP_USER_POOL_ID,
       userPoolClientId: process.env.REACT_APP_USER_POOL_CLIENT_ID,
+      identityPoolId: process.env.REACT_APP_IDENTITY_POOL_ID,
       loginWith: {
         email: true,
       },
@@ -55,9 +56,13 @@ function PhotoSharingApp({ user, signOut }) {
   const [dragActive, setDragActive] = useState(false);
   const [message, setMessage] = useState('');
   const [messageType, setMessageType] = useState('');
+  const [uploadProgress, setUploadProgress] = useState(0);
 
   useEffect(() => {
     loadImages();
+    // Poll for new images every 10 seconds
+    const interval = setInterval(loadImages, 10000);
+    return () => clearInterval(interval);
   }, []);
 
   const showMessage = (text, type = 'info') => {
@@ -73,38 +78,53 @@ function PhotoSharingApp({ user, signOut }) {
     try {
       setLoading(true);
       
-      // Fetch images from API
+      // Try to fetch from API first
       const apiUrl = process.env.REACT_APP_API_GATEWAY_URL;
-      if (apiUrl) {
+      if (apiUrl && user?.username) {
         try {
-          const response = await fetch(`${apiUrl}/api/user/${encodeURIComponent(user.username)}/images`);
+          console.log('Fetching images from API:', `${apiUrl}/api/user/${encodeURIComponent(user.username)}/images`);
+          const response = await fetch(`${apiUrl}/api/user/${encodeURIComponent(user.username)}/images`, {
+            method: 'GET',
+            headers: {
+              'Content-Type': 'application/json',
+            },
+          });
+          
           if (response.ok) {
             const data = await response.json();
+            console.log('API Response:', data);
             setImages(data.images || []);
             setLoading(false);
             return;
+          } else {
+            console.warn('API request failed:', response.status, response.statusText);
           }
         } catch (error) {
           console.error('Error fetching from API:', error);
         }
       }
       
-      // Fallback to localStorage if API fails
+      // Fallback to localStorage if API fails or no API URL
+      console.log('Using localStorage fallback');
       const storedImages = JSON.parse(localStorage.getItem(`user_images_${user.username}`) || '[]');
-      
-      // Filter out old images that might not exist anymore
-      const validImages = storedImages.filter(img => {
-        const uploadTime = new Date(img.uploadTime);
-        const now = new Date();
-        const daysDiff = (now - uploadTime) / (1000 * 60 * 60 * 24);
-        return daysDiff < 30; // Keep images from last 30 days
-      });
-      
-      setImages(validImages);
+      setImages(storedImages);
       setLoading(false);
     } catch (error) {
       console.error('Error loading images:', error);
       setLoading(false);
+      showMessage('Error loading images', 'error');
+    }
+  };
+
+  const checkS3Upload = async (bucketName, fileName) => {
+    try {
+      // Simple check by trying to access the file via S3 REST API
+      const s3Url = `https://${bucketName}.s3.${process.env.REACT_APP_AWS_REGION}.amazonaws.com/${fileName}`;
+      const response = await fetch(s3Url, { method: 'HEAD' });
+      return response.ok;
+    } catch (error) {
+      console.error('Error checking S3 upload:', error);
+      return false;
     }
   };
 
@@ -123,13 +143,35 @@ function PhotoSharingApp({ user, signOut }) {
       return;
     }
 
+    // Check if environment variables are set
+    if (!process.env.REACT_APP_IMAGES_BUCKET) {
+      showMessage('Configuration error: Images bucket not configured', 'error');
+      console.error('Missing REACT_APP_IMAGES_BUCKET environment variable');
+      return;
+    }
+
     setUploading(true);
-    showMessage('Uploading image...', 'info');
+    setUploadProgress(0);
+    showMessage('Preparing upload...', 'info');
     
     try {
       const timestamp = Date.now();
-      const fileName = `${timestamp}-${file.name.replace(/[^a-zA-Z0-9.-]/g, '_')}`;
+      const sanitizedFileName = file.name.replace(/[^a-zA-Z0-9.-]/g, '_');
+      const fileName = `${timestamp}-${sanitizedFileName}`;
       
+      console.log('Starting upload:', {
+        fileName,
+        fileSize: file.size,
+        fileType: file.type,
+        bucket: process.env.REACT_APP_IMAGES_BUCKET,
+        region: process.env.REACT_APP_AWS_REGION,
+        user: user.username
+      });
+
+      showMessage('Uploading to S3...', 'info');
+      setUploadProgress(25);
+
+      // Upload to S3 using Amplify
       const result = await uploadData({
         key: fileName,
         data: file,
@@ -140,55 +182,101 @@ function PhotoSharingApp({ user, signOut }) {
             uploadTime: new Date().toISOString(),
             originalName: file.name,
           },
+          onProgress: ({ transferredBytes, totalBytes }) => {
+            if (totalBytes) {
+              const progress = Math.round((transferredBytes / totalBytes) * 75) + 25; // 25-100%
+              setUploadProgress(progress);
+            }
+          },
         },
       });
 
-      console.log('Upload successful:', result);
+      console.log('Upload result:', result);
       
-      // Create thumbnail URL (will be available after Lambda processing)
-      const thumbnailUrl = `https://${process.env.REACT_APP_THUMBNAILS_BUCKET}.s3.${process.env.REACT_APP_AWS_REGION}.amazonaws.com/thumb-${fileName}`;
+      // Verify the upload by checking if file exists in S3
+      showMessage('Verifying upload...', 'info');
+      setUploadProgress(85);
       
-      // Add to local state immediately
-      const newImage = {
-        id: fileName,
-        originalKey: fileName,
-        thumbnailUrl: thumbnailUrl,
-        uploadTime: new Date().toISOString(),
-        originalName: file.name,
-        size: file.size,
-        processing: true
-      };
+      // Wait a moment for S3 to propagate
+      await new Promise(resolve => setTimeout(resolve, 2000));
       
-      // Update state
-      const updatedImages = [newImage, ...images];
-      setImages(updatedImages);
+      const uploadSuccess = await checkS3Upload(process.env.REACT_APP_IMAGES_BUCKET, fileName);
       
-      // Store in localStorage for persistence
-      localStorage.setItem(`user_images_${user.username}`, JSON.stringify(updatedImages));
-      
-      showMessage('Image uploaded successfully! Processing thumbnail...', 'success');
-      
-      // After 3 seconds, mark as processed (Lambda should be done by then)
-      setTimeout(() => {
-        setImages(prev => prev.map(img => 
-          img.id === fileName ? { ...img, processing: false } : img
-        ));
+      if (uploadSuccess) {
+        console.log('Upload verified successfully');
+        setUploadProgress(100);
+        showMessage('Image uploaded successfully! Processing thumbnail...', 'success');
         
-        // Update localStorage
-        const currentImages = JSON.parse(localStorage.getItem(`user_images_${user.username}`) || '[]');
-        const processedImages = currentImages.map(img => 
-          img.id === fileName ? { ...img, processing: false } : img
-        );
-        localStorage.setItem(`user_images_${user.username}`, JSON.stringify(processedImages));
+        // Add image to state immediately for better UX
+        const newImage = {
+          id: fileName,
+          originalKey: fileName,
+          thumbnailUrl: `https://${process.env.REACT_APP_THUMBNAILS_BUCKET}.s3.${process.env.REACT_APP_AWS_REGION}.amazonaws.com/thumb-${fileName}`,
+          uploadTime: new Date().toISOString(),
+          originalName: file.name,
+          size: file.size,
+          processing: true,
+          realUpload: true // Mark as real upload
+        };
         
-        showMessage('Thumbnail processed successfully!', 'success');
-      }, 3000);
+        setImages(prev => [newImage, ...prev]);
+        
+        // Store in localStorage as backup
+        const updatedImages = [newImage, ...images];
+        localStorage.setItem(`user_images_${user.username}`, JSON.stringify(updatedImages));
+        
+        // Check for thumbnail processing every 3 seconds for up to 30 seconds
+        let attempts = 0;
+        const maxAttempts = 10;
+        const checkThumbnail = async () => {
+          attempts++;
+          const thumbnailExists = await checkS3Upload(
+            process.env.REACT_APP_THUMBNAILS_BUCKET, 
+            `thumb-${fileName}`
+          );
+          
+          if (thumbnailExists) {
+            console.log('Thumbnail processed successfully');
+            setImages(prev => prev.map(img => 
+              img.id === fileName ? { ...img, processing: false } : img
+            ));
+            showMessage('Thumbnail processed successfully!', 'success');
+            
+            // Reload images from API to get latest data
+            setTimeout(loadImages, 2000);
+          } else if (attempts < maxAttempts) {
+            setTimeout(checkThumbnail, 3000);
+          } else {
+            console.warn('Thumbnail processing timed out');
+            setImages(prev => prev.map(img => 
+              img.id === fileName ? { ...img, processing: false, error: 'Processing timeout' } : img
+            ));
+            showMessage('Image uploaded but thumbnail processing took longer than expected', 'warning');
+          }
+        };
+        
+        // Start checking for thumbnail after 5 seconds
+        setTimeout(checkThumbnail, 5000);
+        
+      } else {
+        throw new Error('Upload verification failed - file not found in S3');
+      }
       
     } catch (error) {
       console.error('Upload error:', error);
-      showMessage('Upload failed. Please try again.', 'error');
+      showMessage(`Upload failed: ${error.message}`, 'error');
+      
+      // Show detailed error information
+      if (error.message.includes('Access Denied')) {
+        showMessage('Upload failed: Access denied. Check your authentication and bucket permissions.', 'error');
+      } else if (error.message.includes('Network')) {
+        showMessage('Upload failed: Network error. Please check your internet connection.', 'error');
+      } else {
+        showMessage(`Upload failed: ${error.message}`, 'error');
+      }
     } finally {
       setUploading(false);
+      setUploadProgress(0);
     }
   };
 
@@ -233,6 +321,36 @@ function PhotoSharingApp({ user, signOut }) {
     const sizes = ['Bytes', 'KB', 'MB', 'GB'];
     const i = Math.floor(Math.log(bytes) / Math.log(k));
     return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
+  };
+
+  // Debug info component
+  const DebugInfo = () => {
+    if (process.env.NODE_ENV !== 'production') {
+      return (
+        <div style={{ 
+          position: 'fixed', 
+          bottom: '10px', 
+          right: '10px', 
+          background: 'rgba(0,0,0,0.8)', 
+          color: 'white', 
+          padding: '10px', 
+          fontSize: '12px',
+          borderRadius: '5px',
+          zIndex: 1000,
+          maxWidth: '300px'
+        }}>
+          <strong>Debug Info:</strong><br/>
+          Images Bucket: {process.env.REACT_APP_IMAGES_BUCKET || 'Not set'}<br/>
+          Thumbnails Bucket: {process.env.REACT_APP_THUMBNAILS_BUCKET || 'Not set'}<br/>
+          API URL: {process.env.REACT_APP_API_GATEWAY_URL || 'Not set'}<br/>
+          User Pool: {process.env.REACT_APP_USER_POOL_ID || 'Not set'}<br/>
+          Identity Pool: {process.env.REACT_APP_IDENTITY_POOL_ID || 'Not set'}<br/>
+          User: {user?.username}<br/>
+          Images Count: {images.length}
+        </div>
+      );
+    }
+    return null;
   };
 
   return (
@@ -289,7 +407,15 @@ function PhotoSharingApp({ user, signOut }) {
               {uploading ? (
                 <div className="upload-status">
                   <div className="spinner"></div>
-                  <span>Uploading...</span>
+                  <span>Uploading... {uploadProgress}%</span>
+                  {uploadProgress > 0 && (
+                    <div className="progress-bar">
+                      <div 
+                        className="progress-fill" 
+                        style={{ width: `${uploadProgress}%` }}
+                      ></div>
+                    </div>
+                  )}
                 </div>
               ) : (
                 <div className="upload-content">
@@ -354,7 +480,16 @@ function PhotoSharingApp({ user, signOut }) {
                     {image.processing ? (
                       <div className="image-placeholder processing">
                         <div className="spinner"></div>
-                        <span>Processing...</span>
+                        <span>Processing thumbnail...</span>
+                      </div>
+                    ) : image.error ? (
+                      <div className="image-placeholder error">
+                        <svg width="32" height="32" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+                          <circle cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="2"/>
+                          <line x1="15" y1="9" x2="9" y2="15" stroke="currentColor" strokeWidth="2"/>
+                          <line x1="9" y1="9" x2="15" y2="15" stroke="currentColor" strokeWidth="2"/>
+                        </svg>
+                        <span>{image.error}</span>
                       </div>
                     ) : (
                       <img
@@ -362,6 +497,7 @@ function PhotoSharingApp({ user, signOut }) {
                         alt={image.originalName}
                         className="thumbnail"
                         onError={(e) => {
+                          console.error('Thumbnail load error:', image.thumbnailUrl);
                           e.target.style.display = 'none';
                           e.target.nextSibling.style.display = 'flex';
                         }}
@@ -376,7 +512,7 @@ function PhotoSharingApp({ user, signOut }) {
                         <circle cx="8.5" cy="8.5" r="1.5" stroke="currentColor" strokeWidth="2"/>
                         <path d="M21 15L16 10L5 21" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
                       </svg>
-                      <span>Processing...</span>
+                      <span>Still processing...</span>
                     </div>
                     
                     <div className="image-overlay">
@@ -402,6 +538,11 @@ function PhotoSharingApp({ user, signOut }) {
                         {new Date(image.uploadTime).toLocaleDateString()}
                       </span>
                     </div>
+                    {image.realUpload && (
+                      <div className="upload-badge">
+                        <span>✓ Real Upload</span>
+                      </div>
+                    )}
                   </div>
                 </div>
               ))}
@@ -409,6 +550,8 @@ function PhotoSharingApp({ user, signOut }) {
           )}
         </section>
       </main>
+      
+      <DebugInfo />
     </div>
   );
 }

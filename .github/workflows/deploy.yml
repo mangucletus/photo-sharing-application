@@ -87,6 +87,7 @@ jobs:
         echo "thumbnails_bucket=$(terraform output -raw thumbnails_bucket_name)" >> $GITHUB_OUTPUT
         echo "user_pool_id=$(terraform output -raw cognito_user_pool_id)" >> $GITHUB_OUTPUT
         echo "user_pool_client_id=$(terraform output -raw cognito_client_id)" >> $GITHUB_OUTPUT
+        echo "identity_pool_id=$(terraform output -raw cognito_identity_pool_id)" >> $GITHUB_OUTPUT
         echo "api_gateway_url=$(terraform output -raw api_gateway_url)" >> $GITHUB_OUTPUT
         echo "lambda_function_name=$(terraform output -raw lambda_function_name)" >> $GITHUB_OUTPUT
         echo "api_lambda_function_name=$(terraform output -raw api_lambda_function_name)" >> $GITHUB_OUTPUT
@@ -105,6 +106,7 @@ jobs:
         REACT_APP_AWS_REGION: ${{ env.AWS_REGION }}
         REACT_APP_USER_POOL_ID: ${{ steps.terraform.outputs.user_pool_id }}
         REACT_APP_USER_POOL_CLIENT_ID: ${{ steps.terraform.outputs.user_pool_client_id }}
+        REACT_APP_IDENTITY_POOL_ID: ${{ steps.terraform.outputs.identity_pool_id }}
         REACT_APP_IMAGES_BUCKET: ${{ steps.terraform.outputs.images_bucket }}
         REACT_APP_THUMBNAILS_BUCKET: ${{ steps.terraform.outputs.thumbnails_bucket }}
         REACT_APP_API_GATEWAY_URL: ${{ steps.terraform.outputs.api_gateway_url }}

@@ -1,0 +1,6 @@
+# https://www.robotstxt.org/robotstxt.html
+User-agent: *
+Disallow:
+
+# Allow all web crawlers to access all content
+# This is a photo sharing application that benefits from search engine indexing
