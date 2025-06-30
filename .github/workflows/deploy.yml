@@ -3,12 +3,9 @@ name: Deploy Photo Sharing App
 on:
   push:
     branches: [ main ]
-  pull_request:
-    branches: [ main ]
 
 env:
   AWS_REGION: eu-west-1
-  TERRAFORM_VERSION: 1.5.0
 
 jobs:
   deploy:
@@ -28,15 +25,13 @@ jobs:
     - name: Setup Terraform
       uses: hashicorp/setup-terraform@v3
       with:
-        terraform_version: ${{ env.TERRAFORM_VERSION }}
+        terraform_version: 1.5.0
         terraform_wrapper: false
 
     - name: Setup Node.js
       uses: actions/setup-node@v4
       with:
         node-version: '18'
-        cache: 'npm'
-        cache-dependency-path: frontend/package.json
 
     - name: Setup Python
       uses: actions/setup-python@v4
@@ -54,40 +49,26 @@ jobs:
       run: terraform init
       working-directory: ./terraform
 
-    - name: Terraform Plan
-      run: terraform plan -out=tfplan
-      working-directory: ./terraform
-      env:
-        TF_VAR_aws_region: ${{ env.AWS_REGION }}
-
     - name: Terraform Apply
-      if: github.ref == 'refs/heads/main'
-      run: terraform apply tfplan
+      run: terraform apply -auto-approve
       working-directory: ./terraform
 
     - name: Get Terraform Outputs
-      if: github.ref == 'refs/heads/main'
       id: terraform
       run: |
         echo "images_bucket=$(terraform output -raw images_bucket_name)" >> $GITHUB_OUTPUT
         echo "frontend_bucket=$(terraform output -raw frontend_bucket_name)" >> $GITHUB_OUTPUT
-        echo "thumbnails_bucket=$(terraform output -raw thumbnails_bucket_name)" >> $GITHUB_OUTPUT
         echo "user_pool_id=$(terraform output -raw cognito_user_pool_id)" >> $GITHUB_OUTPUT
         echo "user_pool_client_id=$(terraform output -raw cognito_client_id)" >> $GITHUB_OUTPUT
-        echo "api_gateway_url=$(terraform output -raw api_gateway_url)" >> $GITHUB_OUTPUT
       working-directory: ./terraform
 
     - name: Install Frontend Dependencies
       run: |
-        # Remove existing lock file and node_modules to start fresh
-        rm -f package-lock.json
-        rm -rf node_modules
-        # Install dependencies and generate new lock file
+        rm -rf node_modules package-lock.json
         npm install
       working-directory: ./frontend
 
     - name: Build React App
-      if: github.ref == 'refs/heads/main'
       run: npm run build
       working-directory: ./frontend
       env:
@@ -95,28 +76,17 @@ jobs:
         REACT_APP_USER_POOL_ID: ${{ steps.terraform.outputs.user_pool_id }}
         REACT_APP_USER_POOL_CLIENT_ID: ${{ steps.terraform.outputs.user_pool_client_id }}
         REACT_APP_IMAGES_BUCKET: ${{ steps.terraform.outputs.images_bucket }}
-        REACT_APP_THUMBNAILS_BUCKET: ${{ steps.terraform.outputs.thumbnails_bucket }}
-        REACT_APP_API_GATEWAY_URL: ${{ steps.terraform.outputs.api_gateway_url }}
+        CI: false
 
     - name: Deploy Frontend to S3
-      if: github.ref == 'refs/heads/main'
       run: |
         aws s3 sync frontend/build/ s3://${{ steps.terraform.outputs.frontend_bucket }}/ --delete
         aws s3 cp frontend/build/index.html s3://${{ steps.terraform.outputs.frontend_bucket }}/index.html --cache-control="no-cache"
 
     - name: Update Lambda Function
-      if: github.ref == 'refs/heads/main'
       run: |
+        FUNCTION_NAME=$(terraform -chdir=terraform output -raw lambda_function_name)
         aws lambda update-function-code \
-          --function-name photo-sharing-app-image-resizer \
+          --function-name $FUNCTION_NAME \
           --zip-file fileb://image_resizer.zip \
           --region ${{ env.AWS_REGION }}
-
-    - name: Output Deployment URLs
-      if: github.ref == 'refs/heads/main'
-      run: |
-        echo "🚀 Deployment Complete!"
-        echo "Frontend URL: http://${{ steps.terraform.outputs.frontend_bucket }}.s3-website-${{ env.AWS_REGION }}.amazonaws.com"
-        echo "API Gateway URL: ${{ steps.terraform.outputs.api_gateway_url }}"
-        echo "Images Bucket: ${{ steps.terraform.outputs.images_bucket }}"
-        echo "Thumbnails Bucket: ${{ steps.terraform.outputs.thumbnails_bucket }}"

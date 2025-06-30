@@ -1,11 +1,10 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState } from 'react';
 import { Amplify } from 'aws-amplify';
 import { Authenticator } from '@aws-amplify/ui-react';
 import { uploadData } from 'aws-amplify/storage';
 import '@aws-amplify/ui-react/styles.css';
-import './App.css';
 
-// Configure Amplify (these values will be injected during build)
+// Configure Amplify
 Amplify.configure({
   Auth: {
     Cognito: {
@@ -49,48 +48,30 @@ function App() {
 }
 
 function PhotoSharingApp({ user, signOut }) {
-  const [images, setImages] = useState([]);
   const [uploading, setUploading] = useState(false);
-  const [loading, setLoading] = useState(true);
-
-  useEffect(() => {
-    loadImages();
-  }, []);
-
-  const loadImages = async () => {
-    try {
-      // In a real app, you'd fetch from DynamoDB or your API
-      // For now, we'll just show a placeholder
-      setImages([]);
-      setLoading(false);
-    } catch (error) {
-      console.error('Error loading images:', error);
-      setLoading(false);
-    }
-  };
+  const [message, setMessage] = useState('');
 
   const handleFileUpload = async (event) => {
     const file = event.target.files[0];
     if (!file) return;
 
-    // Validate file type
     if (!file.type.startsWith('image/')) {
-      alert('Please select an image file');
+      setMessage('Please select an image file');
       return;
     }
 
-    // Validate file size (max 10MB)
     if (file.size > 10 * 1024 * 1024) {
-      alert('File size must be less than 10MB');
+      setMessage('File size must be less than 10MB');
       return;
     }
 
     setUploading(true);
+    setMessage('Uploading...');
     
     try {
       const fileName = `${Date.now()}-${file.name}`;
       
-      const result = await uploadData({
+      await uploadData({
         key: fileName,
         data: file,
         options: {
@@ -102,95 +83,46 @@ function PhotoSharingApp({ user, signOut }) {
         },
       });
 
-      console.log('Upload successful:', result);
-      
-      // Refresh images list
-      setTimeout(() => {
-        loadImages();
-      }, 2000); // Wait for Lambda to process
-
-      alert('Image uploaded successfully!');
+      setMessage('Image uploaded successfully!');
       
     } catch (error) {
       console.error('Upload error:', error);
-      alert('Upload failed. Please try again.');
+      setMessage('Upload failed. Please try again.');
     } finally {
       setUploading(false);
-      event.target.value = ''; // Reset file input
+      event.target.value = '';
     }
   };
 
   return (
-    <div className="app">
-      <header className="app-header">
-        <h1>📸 Photo Sharing App</h1>
-        <div className="user-info">
-          <span>Welcome, {user.username}!</span>
-          <button onClick={signOut} className="sign-out-btn">
-            Sign Out
-          </button>
+    <div style={{ padding: '20px', fontFamily: 'Arial, sans-serif' }}>
+      <div style={{ marginBottom: '20px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+        <h1>Photo Sharing App</h1>
+        <div>
+          <span>Welcome, {user.username}! </span>
+          <button onClick={signOut}>Sign Out</button>
         </div>
-      </header>
+      </div>
 
-      <main className="main-content">
-        <section className="upload-section">
-          <h2>Upload a Photo</h2>
-          <div className="upload-area">
-            <input
-              type="file"
-              accept="image/*"
-              onChange={handleFileUpload}
-              disabled={uploading}
-              className="file-input"
-              id="file-upload"
-            />
-            <label htmlFor="file-upload" className="upload-label">
-              {uploading ? (
-                <div className="uploading">
-                  <div className="spinner"></div>
-                  Uploading...
-                </div>
-              ) : (
-                <>
-                  <div className="upload-icon">📁</div>
-                  <div>Click to select an image</div>
-                  <div className="upload-hint">Max size: 10MB</div>
-                </>
-              )}
-            </label>
+      <div style={{ marginBottom: '20px' }}>
+        <h2>Upload Photo</h2>
+        <input
+          type="file"
+          accept="image/*"
+          onChange={handleFileUpload}
+          disabled={uploading}
+        />
+        {message && (
+          <div style={{ marginTop: '10px', padding: '10px', backgroundColor: '#f0f0f0' }}>
+            {message}
           </div>
-        </section>
+        )}
+      </div>
 
-        <section className="gallery-section">
-          <h2>Your Photos</h2>
-          {loading ? (
-            <div className="loading">Loading photos...</div>
-          ) : images.length === 0 ? (
-            <div className="empty-gallery">
-              <div className="empty-icon">🖼️</div>
-              <p>No photos yet. Upload your first image!</p>
-            </div>
-          ) : (
-            <div className="gallery">
-              {images.map((image, index) => (
-                <div key={index} className="gallery-item">
-                  <img
-                    src={image.thumbnailUrl}
-                    alt={image.originalKey}
-                    className="thumbnail"
-                  />
-                  <div className="image-info">
-                    <p className="image-name">{image.originalKey}</p>
-                    <p className="upload-time">
-                      {new Date(image.uploadTime).toLocaleDateString()}
-                    </p>
-                  </div>
-                </div>
-              ))}
-            </div>
-          )}
-        </section>
-      </main>
+      <div>
+        <h2>Your Photos</h2>
+        <p>Upload an image to see it processed and stored.</p>
+      </div>
     </div>
   );
 }
