@@ -1,7 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { Amplify } from 'aws-amplify';
 import { Authenticator } from '@aws-amplify/ui-react';
-import { getCurrentUser, signOut } from 'aws-amplify/auth';
 import { uploadData } from 'aws-amplify/storage';
 import '@aws-amplify/ui-react/styles.css';
 import './App.css';
@@ -124,7 +123,7 @@ function PhotoSharingApp({ user, signOut }) {
   return (
     <div className="app">
       <header className="app-header">
-        <h1>Photo Sharing App</h1>
+        <h1>📸 Photo Sharing App</h1>
         <div className="user-info">
           <span>Welcome, {user.username}!</span>
           <button onClick={signOut} className="sign-out-btn">
