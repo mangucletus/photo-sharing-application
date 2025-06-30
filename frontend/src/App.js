@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { Amplify } from 'aws-amplify';
 import { Authenticator } from '@aws-amplify/ui-react';
-import { uploadData } from 'aws-amplify/storage';
+import { uploadData, remove } from 'aws-amplify/storage';
 import { fetchAuthSession } from 'aws-amplify/auth';
 import '@aws-amplify/ui-react/styles.css';
 import './App.css';
@@ -50,6 +50,52 @@ function App() {
   );
 }
 
+// Image Modal Component
+function ImageModal({ image, onClose }) {
+  if (!image) return null;
+
+  const handleBackdropClick = (e) => {
+    if (e.target === e.currentTarget) {
+      onClose();
+    }
+  };
+
+  const originalImageUrl = `https://${process.env.REACT_APP_IMAGES_BUCKET}.s3.${process.env.REACT_APP_AWS_REGION}.amazonaws.com/${image.originalKey}`;
+
+  return (
+    <div className="modal-backdrop" onClick={handleBackdropClick}>
+      <div className="modal-content">
+        <button className="modal-close" onClick={onClose}>
+          <svg width="24" height="24" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+            <path d="M18 6L6 18M6 6l12 12" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
+          </svg>
+        </button>
+        <div className="modal-image-container">
+          <img
+            src={originalImageUrl}
+            alt={image.originalName}
+            className="modal-image"
+            onError={(e) => {
+              console.error('Original image load failed, falling back to thumbnail');
+              e.target.src = image.thumbnailUrl;
+            }}
+          />
+        </div>
+        <div className="modal-info">
+          <h3>{image.originalName}</h3>
+          <div className="modal-meta">
+            <span>Size: {formatFileSize(image.size)}</span>
+            <span>Uploaded: {new Date(image.uploadTime).toLocaleDateString()}</span>
+            {image.originalWidth && image.originalHeight && (
+              <span>Dimensions: {image.originalWidth} × {image.originalHeight}</span>
+            )}
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function PhotoSharingApp({ user, signOut }) {
   const [images, setImages] = useState([]);
   const [uploading, setUploading] = useState(false);
@@ -59,6 +105,8 @@ function PhotoSharingApp({ user, signOut }) {
   const [messageType, setMessageType] = useState('');
   const [uploadProgress, setUploadProgress] = useState(0);
   const [userEmail, setUserEmail] = useState('');
+  const [selectedImage, setSelectedImage] = useState(null);
+  const [deleting, setDeleting] = useState(new Set());
 
   useEffect(() => {
     // Get user email from auth session
@@ -75,9 +123,6 @@ function PhotoSharingApp({ user, signOut }) {
 
     getUserEmail();
     loadImages();
-    // Poll for new images every 10 seconds
-    const interval = setInterval(loadImages, 10000);
-    return () => clearInterval(interval);
   }, []);
 
   const showMessage = (text, type = 'info') => {
@@ -89,9 +134,9 @@ function PhotoSharingApp({ user, signOut }) {
     }, 5000);
   };
 
-  const loadImages = async () => {
+  const loadImages = async (showLoading = true) => {
     try {
-      setLoading(true);
+      if (showLoading) setLoading(true);
       
       // Try to fetch from API first
       const apiUrl = process.env.REACT_APP_API_GATEWAY_URL;
@@ -110,7 +155,7 @@ function PhotoSharingApp({ user, signOut }) {
             console.log('API Response:', data);
             if (data.images && Array.isArray(data.images)) {
               setImages(data.images);
-              setLoading(false);
+              if (showLoading) setLoading(false);
               return;
             }
           } else {
@@ -125,10 +170,10 @@ function PhotoSharingApp({ user, signOut }) {
       console.log('Using localStorage fallback');
       const storedImages = JSON.parse(localStorage.getItem(`user_images_${user.username}`) || '[]');
       setImages(storedImages);
-      setLoading(false);
+      if (showLoading) setLoading(false);
     } catch (error) {
       console.error('Error loading images:', error);
-      setLoading(false);
+      if (showLoading) setLoading(false);
       showMessage('Error loading images', 'error');
     }
   };
@@ -183,13 +228,13 @@ function PhotoSharingApp({ user, signOut }) {
         options: {
           contentType: file.type,
           metadata: {
-            'user-id': user.username, // Use 'user-id' instead of 'userId'
+            'user-id': user.username,
             'upload-time': new Date().toISOString(),
             'original-name': file.name,
           },
           onProgress: ({ transferredBytes, totalBytes }) => {
             if (totalBytes) {
-              const progress = Math.round((transferredBytes / totalBytes) * 90) + 10; // 10-100%
+              const progress = Math.round((transferredBytes / totalBytes) * 90) + 10;
               setUploadProgress(progress);
             }
           },
@@ -198,7 +243,6 @@ function PhotoSharingApp({ user, signOut }) {
 
       console.log('Upload result:', result);
       
-      // Upload successful - no need to verify since uploadData will throw if it fails
       setUploadProgress(100);
       showMessage('Image uploaded successfully! Processing thumbnail...', 'success');
       
@@ -211,7 +255,7 @@ function PhotoSharingApp({ user, signOut }) {
         originalName: file.name,
         size: file.size,
         processing: true,
-        realUpload: true // Mark as real upload
+        realUpload: true
       };
       
       setImages(prev => [newImage, ...prev]);
@@ -220,13 +264,12 @@ function PhotoSharingApp({ user, signOut }) {
       const updatedImages = [newImage, ...images];
       localStorage.setItem(`user_images_${user.username}`, JSON.stringify(updatedImages));
       
-      // Check for thumbnail processing every 3 seconds for up to 30 seconds
+      // Check for thumbnail processing - reduced frequency to avoid constant refreshing
       let attempts = 0;
-      const maxAttempts = 10;
+      const maxAttempts = 6; // Reduced from 10
       const checkThumbnail = async () => {
         attempts++;
         
-        // Instead of checking S3 directly, check via API or wait for processing
         try {
           const apiUrl = process.env.REACT_APP_API_GATEWAY_URL;
           if (apiUrl) {
@@ -250,36 +293,89 @@ function PhotoSharingApp({ user, signOut }) {
         }
         
         if (attempts < maxAttempts) {
-          setTimeout(checkThumbnail, 3000);
+          setTimeout(checkThumbnail, 5000); // Increased interval to 5 seconds
         } else {
           console.warn('Thumbnail processing timed out');
           setImages(prev => prev.map(img => 
             img.id === fileName ? { ...img, processing: false, error: 'Processing timeout' } : img
           ));
           showMessage('Image uploaded but thumbnail processing took longer than expected', 'warning');
-          // Reload images from API to get latest data
-          setTimeout(loadImages, 2000);
+          // Final refresh after timeout
+          setTimeout(() => loadImages(false), 2000);
         }
       };
       
-      // Start checking for thumbnail after 5 seconds
-      setTimeout(checkThumbnail, 5000);
+      // Start checking for thumbnail after 8 seconds (increased delay)
+      setTimeout(checkThumbnail, 8000);
       
     } catch (error) {
       console.error('Upload error:', error);
       showMessage(`Upload failed: ${error.message}`, 'error');
-      
-      // Show detailed error information
-      if (error.message.includes('Access Denied')) {
-        showMessage('Upload failed: Access denied. Check your authentication and bucket permissions.', 'error');
-      } else if (error.message.includes('Network')) {
-        showMessage('Upload failed: Network error. Please check your internet connection.', 'error');
-      } else {
-        showMessage(`Upload failed: ${error.message}`, 'error');
-      }
     } finally {
       setUploading(false);
       setUploadProgress(0);
+    }
+  };
+
+  const deleteImage = async (imageId, originalKey) => {
+    if (!window.confirm('Are you sure you want to delete this image? This action cannot be undone.')) {
+      return;
+    }
+
+    setDeleting(prev => new Set([...prev, imageId]));
+    
+    try {
+      // Delete from S3 buckets
+      try {
+        await remove({ key: originalKey });
+        console.log('Deleted original image from S3');
+      } catch (s3Error) {
+        console.error('Error deleting from S3:', s3Error);
+        // Continue with deletion even if S3 fails
+      }
+
+      // Delete from API/DynamoDB
+      const apiUrl = process.env.REACT_APP_API_GATEWAY_URL;
+      if (apiUrl) {
+        try {
+          const response = await fetch(`${apiUrl}/api/user/${encodeURIComponent(user.username)}/images/${encodeURIComponent(imageId)}`, {
+            method: 'DELETE',
+            headers: {
+              'Content-Type': 'application/json',
+            },
+          });
+          
+          if (response.ok) {
+            console.log('Deleted image metadata from API');
+          } else {
+            console.warn('API delete failed:', response.status);
+          }
+        } catch (apiError) {
+          console.error('Error deleting from API:', apiError);
+        }
+      }
+
+      // Remove from local state
+      setImages(prev => prev.filter(img => img.id !== imageId));
+      
+      // Update localStorage
+      const updatedImages = images.filter(img => img.id !== imageId);
+      localStorage.setItem(`user_images_${user.username}`, JSON.stringify(updatedImages));
+      
+      showMessage('Image deleted successfully', 'success');
+      
+      // Refresh images from API to ensure consistency
+      setTimeout(() => loadImages(false), 1000);
+      
+    } catch (error) {
+      console.error('Error deleting image:', error);
+      showMessage('Error deleting image. Please try again.', 'error');
+    } finally {
+      setDeleting(prev => {
+        const newDeleting = new Set(prev);
+        newDeleting.delete(imageId);
+        return newDeleting;
+      });
     }
   };
 
@@ -288,7 +384,7 @@ function PhotoSharingApp({ user, signOut }) {
     if (file) {
       handleFileUpload(file);
     }
-    event.target.value = ''; // Reset file input
+    event.target.value = '';
   };
 
   const handleDrag = (e) => {
@@ -311,11 +407,12 @@ function PhotoSharingApp({ user, signOut }) {
     }
   };
 
-  const deleteImage = (imageId) => {
-    const updatedImages = images.filter(img => img.id !== imageId);
-    setImages(updatedImages);
-    localStorage.setItem(`user_images_${user.username}`, JSON.stringify(updatedImages));
-    showMessage('Image removed from gallery', 'info');
+  const handleImageClick = (image) => {
+    setSelectedImage(image);
+  };
+
+  const handleCloseModal = () => {
+    setSelectedImage(null);
   };
 
   const formatFileSize = (bytes) => {
@@ -442,21 +539,19 @@ function PhotoSharingApp({ user, signOut }) {
         <section className="gallery-section">
           <div className="section-header">
             <h2 className="section-title">Your Photos ({images.length})</h2>
-            {images.length > 0 && (
-              <button 
-                className="refresh-btn"
-                onClick={loadImages}
-                disabled={loading}
-              >
-                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
-                  <path d="M21 2V8H15" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
-                  <path d="M3 12A9 9 0 0 1 15 3L21 8" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
-                  <path d="M3 22V16H9" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
-                  <path d="M21 12A9 9 0 0 1 9 21L3 16" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
-                </svg>
-                Refresh
-              </button>
-            )}
+            <button 
+              className="refresh-btn"
+              onClick={() => loadImages()}
+              disabled={loading}
+            >
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+                <path d="M21 2V8H15" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
+                <path d="M3 12A9 9 0 0 1 15 3L21 8" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
+                <path d="M3 22V16H9" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
+                <path d="M21 12A9 9 0 0 1 9 21L3 16" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
+              </svg>
+              Refresh
+            </button>
           </div>
           
           {loading ? (
@@ -480,7 +575,7 @@ function PhotoSharingApp({ user, signOut }) {
             <div className="gallery">
               {images.map((image) => (
                 <div key={image.id} className="gallery-item">
-                  <div className="image-container">
+                  <div className="image-container" onClick={() => handleImageClick(image)}>
                     {image.processing ? (
                       <div className="image-placeholder processing">
                         <div className="spinner"></div>
@@ -496,38 +591,54 @@ function PhotoSharingApp({ user, signOut }) {
                         <span>{image.error}</span>
                       </div>
                     ) : (
-                      <img
-                        src={image.thumbnailUrl}
-                        alt={image.originalName}
-                        className="thumbnail"
-                        onError={(e) => {
-                          console.error('Thumbnail load error:', image.thumbnailUrl);
-                          e.target.style.display = 'none';
-                          e.target.nextSibling.style.display = 'flex';
-                        }}
-                        onLoad={(e) => {
-                          e.target.nextSibling.style.display = 'none';
-                        }}
-                      />
+                      <>
+                        <img
+                          src={image.thumbnailUrl}
+                          alt={image.originalName}
+                          className="thumbnail"
+                          onError={(e) => {
+                            console.error('Thumbnail load error:', image.thumbnailUrl);
+                            e.target.style.display = 'none';
+                            e.target.nextSibling.style.display = 'flex';
+                          }}
+                          onLoad={(e) => {
+                            e.target.nextSibling.style.display = 'none';
+                          }}
+                        />
+                        <div className="image-error" style={{display: 'none'}}>
+                          <svg width="32" height="32" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+                            <rect x="3" y="3" width="18" height="18" rx="2" ry="2" stroke="currentColor" strokeWidth="2"/>
+                            <circle cx="8.5" cy="8.5" r="1.5" stroke="currentColor" strokeWidth="2"/>
+                            <path d="M21 15L16 10L5 21" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
+                          </svg>
+                          <span>Still processing...</span>
+                        </div>
+                        <div className="image-overlay-icon">
+                          <svg width="24" height="24" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+                            <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z" stroke="currentColor" strokeWidth="2"/>
+                            <circle cx="12" cy="12" r="3" stroke="currentColor" strokeWidth="2"/>
+                          </svg>
+                        </div>
+                      </>
                     )}
-                    <div className="image-error" style={{display: 'none'}}>
-                      <svg width="32" height="32" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
-                        <rect x="3" y="3" width="18" height="18" rx="2" ry="2" stroke="currentColor" strokeWidth="2"/>
-                        <circle cx="8.5" cy="8.5" r="1.5" stroke="currentColor" strokeWidth="2"/>
-                        <path d="M21 15L16 10L5 21" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
-                      </svg>
-                      <span>Still processing...</span>
-                    </div>
                     
                     <div className="image-overlay">
                       <button 
                         className="delete-btn"
-                        onClick={() => deleteImage(image.id)}
-                        title="Remove from gallery"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          deleteImage(image.id, image.originalKey);
+                        }}
+                        disabled={deleting.has(image.id)}
+                        title="Delete image"
                       >
-                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
-                          <path d="M18 6L6 18M6 6L18 18" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
-                        </svg>
+                        {deleting.has(image.id) ? (
+                          <div className="spinner small"></div>
+                        ) : (
+                          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+                            <path d="M3 6h18M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
+                          </svg>
+                        )}
                       </button>
                     </div>
                   </div>
@@ -555,9 +666,21 @@ function PhotoSharingApp({ user, signOut }) {
         </section>
       </main>
       
+      {/* Image Modal */}
+      <ImageModal image={selectedImage} onClose={handleCloseModal} />
+      
       <DebugInfo />
     </div>
   );
+}
+
+// Helper function needs to be outside the component to avoid re-declaration
+function formatFileSize(bytes) {
+  if (bytes === 0) return '0 Bytes';
+  const k = 1024;
+  const sizes = ['Bytes', 'KB', 'MB', 'GB'];
+  const i = Math.floor(Math.log(bytes) / Math.log(k));
+  return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
 }
 
 export default App;

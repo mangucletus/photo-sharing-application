@@ -94,14 +94,29 @@ def lambda_handler(event, context):
                 
                 # Get original dimensions
                 original_width, original_height = image.size
+                print(f"Original dimensions: {original_width}x{original_height}")
                 
-                # Create thumbnail (150x150 max, preserving aspect ratio)
-                image.thumbnail((150, 150), Image.Resampling.LANCZOS)
+                # Create higher quality thumbnail (400x400 max, preserving aspect ratio)
+                # This will provide much clearer images compared to 150x150
+                max_thumbnail_size = 400
+                image.thumbnail((max_thumbnail_size, max_thumbnail_size), Image.Resampling.LANCZOS)
                 thumbnail_width, thumbnail_height = image.size
                 
-                # Save thumbnail to bytes
+                print(f"Thumbnail dimensions: {thumbnail_width}x{thumbnail_height}")
+                
+                # Save thumbnail to bytes with higher quality
                 buffer = io.BytesIO()
-                image.save(buffer, "JPEG", quality=85, optimize=True)
+                
+                # Use higher quality settings for better image clarity
+                if content_type in ['image/png', 'image/PNG']:
+                    # For PNG, use PNG format to maintain transparency and quality
+                    image.save(buffer, "PNG", optimize=True)
+                    thumbnail_content_type = "image/png"
+                else:
+                    # For JPEG and other formats, use JPEG with high quality
+                    image.save(buffer, "JPEG", quality=90, optimize=True, progressive=True)
+                    thumbnail_content_type = "image/jpeg"
+                
                 buffer.seek(0)
                 
                 # Upload thumbnail to S3
@@ -109,13 +124,15 @@ def lambda_handler(event, context):
                     Bucket=THUMBNAIL_BUCKET,
                     Key=target_key,
                     Body=buffer,
-                    ContentType="image/jpeg",
+                    ContentType=thumbnail_content_type,
                     CacheControl="max-age=31536000",  # 1 year cache
                     Metadata={
                         'original-key': source_key,
                         'original-bucket': source_bucket,
                         'processed-time': datetime.utcnow().isoformat(),
-                        'user-id': user_id
+                        'user-id': user_id,
+                        'thumbnail-size': f"{thumbnail_width}x{thumbnail_height}",
+                        'original-size': f"{original_width}x{original_height}"
                     }
                 )
                 
@@ -124,6 +141,8 @@ def lambda_handler(event, context):
                 # Calculate file sizes
                 original_size = len(image_content)
                 thumbnail_size = len(buffer.getvalue())
+                
+                print(f"File sizes - Original: {original_size} bytes, Thumbnail: {thumbnail_size} bytes")
                 
                 # Store metadata in DynamoDB
                 dynamodb_item = {
@@ -143,7 +162,9 @@ def lambda_handler(event, context):
                     'upload_time': upload_time,
                     'processed_time': datetime.utcnow().isoformat(),
                     'content_type': content_type,
-                    'status': 'processed'
+                    'thumbnail_content_type': thumbnail_content_type,
+                    'status': 'processed',
+                    'thumbnail_quality': 'high'  # Mark as high quality thumbnail
                 }
                 
                 print(f"Storing DynamoDB item: {dynamodb_item}")
@@ -160,6 +181,7 @@ def lambda_handler(event, context):
                 print(f"Successfully processed {source_key} -> {target_key}")
                 print(f"Thumbnail URL: {thumbnail_url}")
                 print(f"User ID: {user_id}")
+                print(f"Quality: High ({thumbnail_width}x{thumbnail_height})")
                 
             except Exception as e:
                 print(f"Error processing {source_key}: {str(e)}")
@@ -193,7 +215,9 @@ def lambda_handler(event, context):
             'statusCode': 200,
             'body': json.dumps({
                 'message': 'Images processed successfully',
-                'processed_count': len(event['Records'])
+                'processed_count': len(event['Records']),
+                'thumbnail_quality': 'high',
+                'max_thumbnail_size': 400
             })
         }
         

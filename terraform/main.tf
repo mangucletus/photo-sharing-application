@@ -486,7 +486,7 @@ def lambda_handler(event, context):
         'headers': {
             'Access-Control-Allow-Origin': '*',
             'Access-Control-Allow-Headers': 'Content-Type',
-            'Access-Control-Allow-Methods': 'GET,POST,OPTIONS'
+            'Access-Control-Allow-Methods': 'GET,POST,DELETE,OPTIONS'
         },
         'body': json.dumps({'message': 'API placeholder'})
     }
@@ -551,6 +551,7 @@ resource "aws_iam_role" "api_lambda_role" {
   })
 }
 
+# Enhanced policy for API Lambda to support DELETE operations
 resource "aws_iam_role_policy" "api_lambda_policy" {
   name = "${var.app_name}-api-lambda-policy"
   role = aws_iam_role.api_lambda_role.id
@@ -563,11 +564,21 @@ resource "aws_iam_role_policy" "api_lambda_policy" {
         Action = [
           "dynamodb:Query",
           "dynamodb:GetItem",
-          "dynamodb:Scan"
+          "dynamodb:Scan",
+          "dynamodb:DeleteItem"
         ]
         Resource = [
           aws_dynamodb_table.image_metadata.arn,
           "${aws_dynamodb_table.image_metadata.arn}/*"
+        ]
+      },
+      {
+        Effect = "Allow"
+        Action = [
+          "s3:DeleteObject"
+        ]
+        Resource = [
+          "${aws_s3_bucket.thumbnails.arn}/*"
         ]
       }
     ]
@@ -696,6 +707,13 @@ resource "aws_api_gateway_resource" "user_images_endpoint" {
   path_part   = "images"
 }
 
+# Resource for individual image operations (for DELETE)
+resource "aws_api_gateway_resource" "user_image_endpoint" {
+  rest_api_id = aws_api_gateway_rest_api.api.id
+  parent_id   = aws_api_gateway_resource.user_images_endpoint.id
+  path_part   = "{image_id}"
+}
+
 # GET method for fetching user images
 resource "aws_api_gateway_method" "get_user_images" {
   rest_api_id   = aws_api_gateway_rest_api.api.id
@@ -718,7 +736,30 @@ resource "aws_api_gateway_integration" "get_user_images_integration" {
   uri                     = aws_lambda_function.api_lambda.invoke_arn
 }
 
-# OPTIONS method for CORS
+# DELETE method for deleting specific image
+resource "aws_api_gateway_method" "delete_user_image" {
+  rest_api_id   = aws_api_gateway_rest_api.api.id
+  resource_id   = aws_api_gateway_resource.user_image_endpoint.id
+  http_method   = "DELETE"
+  authorization = "NONE"
+
+  request_parameters = {
+    "method.request.path.user_id"  = true
+    "method.request.path.image_id" = true
+  }
+}
+
+resource "aws_api_gateway_integration" "delete_user_image_integration" {
+  rest_api_id = aws_api_gateway_rest_api.api.id
+  resource_id = aws_api_gateway_resource.user_image_endpoint.id
+  http_method = aws_api_gateway_method.delete_user_image.http_method
+
+  integration_http_method = "POST"
+  type                    = "AWS_PROXY"
+  uri                     = aws_lambda_function.api_lambda.invoke_arn
+}
+
+# OPTIONS method for CORS on images endpoint
 resource "aws_api_gateway_method" "options_user_images" {
   rest_api_id   = aws_api_gateway_rest_api.api.id
   resource_id   = aws_api_gateway_resource.user_images_endpoint.id
@@ -758,7 +799,52 @@ resource "aws_api_gateway_integration_response" "options_user_images_integration
 
   response_parameters = {
     "method.response.header.Access-Control-Allow-Headers" = "'Content-Type,X-Amz-Date,Authorization,X-Api-Key,X-Amz-Security-Token'"
-    "method.response.header.Access-Control-Allow-Methods" = "'GET,OPTIONS'"
+    "method.response.header.Access-Control-Allow-Methods" = "'GET,DELETE,OPTIONS'"
+    "method.response.header.Access-Control-Allow-Origin"  = "'*'"
+  }
+}
+
+# OPTIONS method for CORS on individual image endpoint
+resource "aws_api_gateway_method" "options_user_image" {
+  rest_api_id   = aws_api_gateway_rest_api.api.id
+  resource_id   = aws_api_gateway_resource.user_image_endpoint.id
+  http_method   = "OPTIONS"
+  authorization = "NONE"
+}
+
+resource "aws_api_gateway_integration" "options_user_image_integration" {
+  rest_api_id = aws_api_gateway_rest_api.api.id
+  resource_id = aws_api_gateway_resource.user_image_endpoint.id
+  http_method = aws_api_gateway_method.options_user_image.http_method
+  type        = "MOCK"
+
+  request_templates = {
+    "application/json" = "{\"statusCode\": 200}"
+  }
+}
+
+resource "aws_api_gateway_method_response" "options_user_image_200" {
+  rest_api_id = aws_api_gateway_rest_api.api.id
+  resource_id = aws_api_gateway_resource.user_image_endpoint.id
+  http_method = aws_api_gateway_method.options_user_image.http_method
+  status_code = "200"
+
+  response_parameters = {
+    "method.response.header.Access-Control-Allow-Headers" = true
+    "method.response.header.Access-Control-Allow-Methods" = true
+    "method.response.header.Access-Control-Allow-Origin"  = true
+  }
+}
+
+resource "aws_api_gateway_integration_response" "options_user_image_integration_response" {
+  rest_api_id = aws_api_gateway_rest_api.api.id
+  resource_id = aws_api_gateway_resource.user_image_endpoint.id
+  http_method = aws_api_gateway_method.options_user_image.http_method
+  status_code = aws_api_gateway_method_response.options_user_image_200.status_code
+
+  response_parameters = {
+    "method.response.header.Access-Control-Allow-Headers" = "'Content-Type,X-Amz-Date,Authorization,X-Api-Key,X-Amz-Security-Token'"
+    "method.response.header.Access-Control-Allow-Methods" = "'DELETE,OPTIONS'"
     "method.response.header.Access-Control-Allow-Origin"  = "'*'"
   }
 }
@@ -844,11 +930,15 @@ resource "aws_api_gateway_deployment" "api_deployment" {
     aws_api_gateway_method.get_image_key,
     aws_api_gateway_method.options_images,
     aws_api_gateway_method.get_user_images,
+    aws_api_gateway_method.delete_user_image,
     aws_api_gateway_method.options_user_images,
+    aws_api_gateway_method.options_user_image,
     aws_api_gateway_integration.get_image_key_integration,
     aws_api_gateway_integration.options_integration,
     aws_api_gateway_integration.get_user_images_integration,
-    aws_api_gateway_integration.options_user_images_integration
+    aws_api_gateway_integration.delete_user_image_integration,
+    aws_api_gateway_integration.options_user_images_integration,
+    aws_api_gateway_integration.options_user_image_integration
   ]
 
   rest_api_id = aws_api_gateway_rest_api.api.id
@@ -859,14 +949,19 @@ resource "aws_api_gateway_deployment" "api_deployment" {
       aws_api_gateway_resource.image_key_resource.id,
       aws_api_gateway_resource.api_resource.id,
       aws_api_gateway_resource.user_images_endpoint.id,
+      aws_api_gateway_resource.user_image_endpoint.id,
       aws_api_gateway_method.get_image_key.id,
       aws_api_gateway_method.options_images.id,
       aws_api_gateway_method.get_user_images.id,
+      aws_api_gateway_method.delete_user_image.id,
       aws_api_gateway_method.options_user_images.id,
+      aws_api_gateway_method.options_user_image.id,
       aws_api_gateway_integration.get_image_key_integration.id,
       aws_api_gateway_integration.options_integration.id,
       aws_api_gateway_integration.get_user_images_integration.id,
+      aws_api_gateway_integration.delete_user_image_integration.id,
       aws_api_gateway_integration.options_user_images_integration.id,
+      aws_api_gateway_integration.options_user_image_integration.id,
     ]))
   }
 

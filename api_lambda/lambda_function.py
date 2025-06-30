@@ -5,6 +5,7 @@ import os
 from decimal import Decimal
 
 dynamodb = boto3.resource('dynamodb')
+s3 = boto3.client('s3')
 table = dynamodb.Table(os.environ['METADATA_TABLE'])
 
 def decimal_default(obj):
@@ -21,7 +22,7 @@ def lambda_handler(event, context):
         headers = {
             'Access-Control-Allow-Origin': '*',
             'Access-Control-Allow-Headers': 'Content-Type,X-Amz-Date,Authorization,X-Api-Key,X-Amz-Security-Token',
-            'Access-Control-Allow-Methods': 'GET,POST,OPTIONS'
+            'Access-Control-Allow-Methods': 'GET,POST,DELETE,OPTIONS'
         }
         
         # Handle preflight requests
@@ -32,27 +33,9 @@ def lambda_handler(event, context):
                 'body': ''
             }
         
-        # Get user ID from query parameters or path
-        user_id = None
-        
-        # Try to get user_id from query parameters
-        query_params = event.get('queryStringParameters') or {}
-        user_id = query_params.get('user_id')
-        
-        # Try to get user_id from path parameters
-        if not user_id:
-            path_params = event.get('pathParameters') or {}
-            user_id = path_params.get('user_id')
-        
-        # Try to get user_id from body (for POST requests)
-        if not user_id and event.get('body'):
-            try:
-                body = json.loads(event['body'])
-                user_id = body.get('user_id')
-            except:
-                pass
-        
-        print(f"Extracted user_id: {user_id}")
+        # Get user ID from path parameters
+        path_params = event.get('pathParameters') or {}
+        user_id = path_params.get('user_id')
         
         if not user_id:
             return {
@@ -60,10 +43,9 @@ def lambda_handler(event, context):
                 'headers': headers,
                 'body': json.dumps({
                     'error': 'user_id is required',
-                    'message': 'Please provide user_id in query parameters, path, or request body',
+                    'message': 'Please provide user_id in path parameters',
                     'received_event': {
-                        'queryStringParameters': query_params,
-                        'pathParameters': event.get('pathParameters'),
+                        'pathParameters': path_params,
                         'httpMethod': event['httpMethod']
                     }
                 })
@@ -72,6 +54,18 @@ def lambda_handler(event, context):
         # Handle different HTTP methods
         if event['httpMethod'] == 'GET':
             return get_user_images(user_id, headers)
+        elif event['httpMethod'] == 'DELETE':
+            image_id = path_params.get('image_id')
+            if not image_id:
+                return {
+                    'statusCode': 400,
+                    'headers': headers,
+                    'body': json.dumps({
+                        'error': 'image_id is required for DELETE operation',
+                        'message': 'Please provide image_id in path parameters'
+                    })
+                }
+            return delete_user_image(user_id, image_id, headers)
         else:
             return {
                 'statusCode': 405,
@@ -88,7 +82,7 @@ def lambda_handler(event, context):
             'headers': {
                 'Access-Control-Allow-Origin': '*',
                 'Access-Control-Allow-Headers': 'Content-Type',
-                'Access-Control-Allow-Methods': 'GET,POST,OPTIONS'
+                'Access-Control-Allow-Methods': 'GET,POST,DELETE,OPTIONS'
             },
             'body': json.dumps({
                 'error': 'Internal server error',
@@ -103,7 +97,7 @@ def get_user_images(user_id, headers):
         
         # First, let's try to scan all items to see what's in the table (for debugging)
         try:
-            scan_response = table.scan(Limit=10)
+            scan_response = table.scan(Limit=5)
             print(f"Sample items in table: {scan_response.get('Items', [])}")
         except Exception as scan_error:
             print(f"Error scanning table: {scan_error}")
@@ -194,5 +188,114 @@ def get_user_images(user_id, headers):
                 'error': 'Failed to fetch images',
                 'message': str(e),
                 'user_id': user_id
+            })
+        }
+
+def delete_user_image(user_id, image_id, headers):
+    """Delete a specific image for a user"""
+    try:
+        print(f"Deleting image {image_id} for user {user_id}")
+        
+        # First, get the image metadata to find the thumbnail key
+        try:
+            # Try to find the image by image_id first
+            response = table.scan(
+                FilterExpression='image_id = :image_id AND user_id = :user_id',
+                ExpressionAttributeValues={
+                    ':image_id': image_id,
+                    ':user_id': user_id
+                }
+            )
+            
+            items = response.get('Items', [])
+            if not items:
+                # If not found by image_id, try finding by original_key (for backward compatibility)
+                response = table.scan(
+                    FilterExpression='original_key = :original_key AND user_id = :user_id',
+                    ExpressionAttributeValues={
+                        ':original_key': image_id,  # image_id might actually be the original_key
+                        ':user_id': user_id
+                    }
+                )
+                items = response.get('Items', [])
+            
+            if not items:
+                print(f"Image not found: {image_id} for user {user_id}")
+                return {
+                    'statusCode': 404,
+                    'headers': headers,
+                    'body': json.dumps({
+                        'error': 'Image not found',
+                        'message': f'Image {image_id} not found for user {user_id}'
+                    })
+                }
+            
+            image_metadata = items[0]
+            print(f"Found image metadata: {image_metadata}")
+            
+            # Delete thumbnail from S3 if it exists
+            thumbnail_bucket = os.environ.get('THUMBNAIL_BUCKET')
+            thumbnail_key = image_metadata.get('thumbnail_key')
+            
+            if thumbnail_bucket and thumbnail_key:
+                try:
+                    s3.delete_object(Bucket=thumbnail_bucket, Key=thumbnail_key)
+                    print(f"Deleted thumbnail from S3: {thumbnail_key}")
+                except Exception as s3_error:
+                    print(f"Error deleting thumbnail from S3: {s3_error}")
+                    # Continue with metadata deletion even if S3 delete fails
+            
+            # Delete metadata from DynamoDB
+            try:
+                table.delete_item(
+                    Key={'image_id': image_metadata['image_id']}
+                )
+                print(f"Deleted metadata from DynamoDB: {image_metadata['image_id']}")
+            except Exception as db_error:
+                print(f"Error deleting from DynamoDB: {db_error}")
+                return {
+                    'statusCode': 500,
+                    'headers': headers,
+                    'body': json.dumps({
+                        'error': 'Failed to delete image metadata',
+                        'message': str(db_error)
+                    })
+                }
+            
+            return {
+                'statusCode': 200,
+                'headers': headers,
+                'body': json.dumps({
+                    'message': 'Image deleted successfully',
+                    'deleted_image_id': image_metadata['image_id'],
+                    'deleted_thumbnail_key': thumbnail_key
+                })
+            }
+            
+        except Exception as e:
+            print(f"Error in delete process: {str(e)}")
+            import traceback
+            print(f"Full traceback: {traceback.format_exc()}")
+            return {
+                'statusCode': 500,
+                'headers': headers,
+                'body': json.dumps({
+                    'error': 'Failed to delete image',
+                    'message': str(e)
+                })
+            }
+            
+    except Exception as e:
+        print(f"Error deleting image {image_id} for user {user_id}: {str(e)}")
+        import traceback
+        print(f"Full traceback: {traceback.format_exc()}")
+        return {
+            'statusCode': 500,
+            'headers': headers,
+            'body': json.dumps({
+                'error': 'Failed to delete image',
+                'message': str(e),
+                'user_id': user_id,
+                'image_id': image_id
             })
         }
