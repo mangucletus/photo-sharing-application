@@ -1,5 +1,3 @@
-
-
 terraform {
   required_version = ">= 1.0"
   required_providers {
@@ -348,7 +346,6 @@ resource "aws_lambda_function" "image_resizer" {
     variables = {
       THUMBNAIL_BUCKET = aws_s3_bucket.thumbnails.bucket
       METADATA_TABLE   = aws_dynamodb_table.image_metadata.name
-      AWS_REGION       = var.aws_region
     }
   }
 }
@@ -368,7 +365,6 @@ resource "aws_lambda_function" "api_lambda" {
     variables = {
       METADATA_TABLE   = aws_dynamodb_table.image_metadata.name
       THUMBNAIL_BUCKET = aws_s3_bucket.thumbnails.bucket
-      AWS_REGION       = var.aws_region
     }
   }
 }

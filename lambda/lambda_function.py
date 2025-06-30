@@ -116,7 +116,9 @@ def lambda_handler(event, context):
                 print(f"Stored metadata for image: {image_id}")
                 
                 # Create public URL for thumbnail
-                thumbnail_url = f"https://{THUMBNAIL_BUCKET}.s3.{os.environ.get('AWS_REGION', 'eu-west-1')}.amazonaws.com/{target_key}"
+                # AWS_REGION is automatically available in Lambda context
+                region = os.environ.get('AWS_DEFAULT_REGION', 'eu-west-1')
+                thumbnail_url = f"https://{THUMBNAIL_BUCKET}.s3.{region}.amazonaws.com/{target_key}"
                 
                 print(f"Successfully processed {source_key} -> {target_key}")
                 print(f"Thumbnail URL: {thumbnail_url}")

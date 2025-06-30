@@ -103,7 +103,8 @@ def get_user_images(user_id, headers):
         # Process images to add thumbnail URLs and format data
         processed_images = []
         thumbnail_bucket = os.environ.get('THUMBNAIL_BUCKET')
-        region = os.environ.get('AWS_REGION', 'eu-west-1')
+        # AWS_DEFAULT_REGION is available in Lambda, or use fallback
+        region = os.environ.get('AWS_DEFAULT_REGION', 'eu-west-1')
         
         for image in images:
             thumbnail_url = f"https://{thumbnail_bucket}.s3.{region}.amazonaws.com/{image['thumbnail_key']}"
