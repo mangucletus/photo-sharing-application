@@ -35,6 +35,8 @@ jobs:
       uses: actions/setup-node@v4
       with:
         node-version: '18'
+        cache: 'npm'
+        cache-dependency-path: frontend/package-lock.json
 
     - name: Setup Python
       uses: actions/setup-python@v4
@@ -75,24 +77,8 @@ jobs:
         echo "api_gateway_url=$(terraform output -raw api_gateway_url)" >> $GITHUB_OUTPUT
       working-directory: ./terraform
 
-    - name: Check Frontend Dependencies
-      run: |
-        echo "Checking frontend directory structure..."
-        ls -la frontend/
-        if [ ! -f frontend/package.json ]; then
-          echo "Error: package.json not found in frontend directory"
-          exit 1
-        fi
-        echo "✅ package.json found"
-
     - name: Install Frontend Dependencies
-      run: |
-        if [ ! -f package-lock.json ]; then
-          echo "package-lock.json not found, running npm install to generate it"
-          npm install
-        else
-          npm ci
-        fi
+      run: npm ci
       working-directory: ./frontend
 
     - name: Build React App
@@ -118,7 +104,8 @@ jobs:
       run: |
         aws lambda update-function-code \
           --function-name photo-sharing-app-image-resizer \
-          --zip-file fileb://image_resizer.zip
+          --zip-file fileb://image_resizer.zip \
+          --region ${{ env.AWS_REGION }}
 
     - name: Output Deployment URLs
       if: github.ref == 'refs/heads/main'

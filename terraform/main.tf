@@ -5,6 +5,14 @@ terraform {
       source  = "hashicorp/aws"
       version = "~> 5.0"
     }
+    archive = {
+      source  = "hashicorp/archive"
+      version = "~> 2.0"
+    }
+    random = {
+      source  = "hashicorp/random"
+      version = "~> 3.0"
+    }
   }
 
   backend "s3" {
@@ -53,6 +61,8 @@ resource "aws_s3_bucket_cors_configuration" "images_cors" {
     expose_headers  = ["ETag"]
     max_age_seconds = 3000
   }
+
+  depends_on = [aws_s3_bucket.images]
 }
 
 resource "aws_s3_bucket_notification" "images_notification" {
@@ -80,6 +90,8 @@ resource "aws_s3_bucket_cors_configuration" "thumbnails_cors" {
     allowed_origins = ["*"]
     max_age_seconds = 3000
   }
+
+  depends_on = [aws_s3_bucket.thumbnails]
 }
 
 resource "aws_s3_bucket_public_access_block" "thumbnails_pab" {
@@ -136,6 +148,8 @@ resource "aws_s3_bucket_cors_configuration" "frontend_cors" {
     allowed_origins = ["*"]
     max_age_seconds = 3000
   }
+
+  depends_on = [aws_s3_bucket.frontend]
 }
 
 resource "aws_s3_bucket_public_access_block" "frontend_pab" {
@@ -275,14 +289,34 @@ resource "aws_iam_role_policy_attachment" "lambda_basic" {
   role       = aws_iam_role.lambda_role.name
 }
 
+# Create placeholder Lambda code
+data "archive_file" "lambda_zip" {
+  type        = "zip"
+  output_path = "image_resizer.zip"
+
+  source {
+    content  = <<EOF
+import json
+def lambda_handler(event, context):
+    return {
+        'statusCode': 200,
+        'body': json.dumps('Placeholder function - will be updated by CI/CD')
+    }
+EOF
+    filename = "lambda_function.py"
+  }
+}
+
 # Lambda Function for Image Resizing
 resource "aws_lambda_function" "image_resizer" {
-  filename      = "image_resizer.zip"
+  filename      = data.archive_file.lambda_zip.output_path
   function_name = "${var.app_name}-image-resizer"
   role          = aws_iam_role.lambda_role.arn
   handler       = "lambda_function.lambda_handler"
   runtime       = "python3.9"
   timeout       = 30
+
+  source_code_hash = data.archive_file.lambda_zip.output_base64sha256
 
   environment {
     variables = {
@@ -300,6 +334,42 @@ resource "aws_lambda_permission" "allow_s3" {
   source_arn    = aws_s3_bucket.images.arn
 }
 
+# IAM Role for API Gateway to access S3
+resource "aws_iam_role" "api_gateway_role" {
+  name = "${var.app_name}-api-gateway-role"
+
+  assume_role_policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      {
+        Action = "sts:AssumeRole"
+        Effect = "Allow"
+        Principal = {
+          Service = "apigateway.amazonaws.com"
+        }
+      }
+    ]
+  })
+}
+
+resource "aws_iam_role_policy" "api_gateway_s3_policy" {
+  name = "${var.app_name}-api-gateway-s3-policy"
+  role = aws_iam_role.api_gateway_role.id
+
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      {
+        Effect = "Allow"
+        Action = [
+          "s3:GetObject"
+        ]
+        Resource = "${aws_s3_bucket.thumbnails.arn}/*"
+      }
+    ]
+  })
+}
+
 # API Gateway
 resource "aws_api_gateway_rest_api" "api" {
   name = "${var.app_name}-api"
@@ -315,11 +385,59 @@ resource "aws_api_gateway_resource" "images_resource" {
   path_part   = "images"
 }
 
-resource "aws_api_gateway_method" "get_images" {
+# Add path parameter for image key
+resource "aws_api_gateway_resource" "image_key_resource" {
+  rest_api_id = aws_api_gateway_rest_api.api.id
+  parent_id   = aws_api_gateway_resource.images_resource.id
+  path_part   = "{key+}"
+}
+
+resource "aws_api_gateway_method" "get_image_key" {
   rest_api_id   = aws_api_gateway_rest_api.api.id
-  resource_id   = aws_api_gateway_resource.images_resource.id
+  resource_id   = aws_api_gateway_resource.image_key_resource.id
   http_method   = "GET"
-  authorization = "AWS_IAM"
+  authorization = "NONE"
+
+  request_parameters = {
+    "method.request.path.key" = true
+  }
+}
+
+resource "aws_api_gateway_integration" "get_image_key_integration" {
+  rest_api_id = aws_api_gateway_rest_api.api.id
+  resource_id = aws_api_gateway_resource.image_key_resource.id
+  http_method = aws_api_gateway_method.get_image_key.http_method
+
+  integration_http_method = "GET"
+  type                    = "AWS"
+  uri                     = "arn:aws:apigateway:${var.aws_region}:s3:path/${aws_s3_bucket.thumbnails.bucket}/{key}"
+  credentials             = aws_iam_role.api_gateway_role.arn
+
+  request_parameters = {
+    "integration.request.path.key" = "method.request.path.key"
+  }
+}
+
+resource "aws_api_gateway_method_response" "get_image_key_200" {
+  rest_api_id = aws_api_gateway_rest_api.api.id
+  resource_id = aws_api_gateway_resource.image_key_resource.id
+  http_method = aws_api_gateway_method.get_image_key.http_method
+  status_code = "200"
+
+  response_parameters = {
+    "method.response.header.Access-Control-Allow-Origin" = true
+  }
+}
+
+resource "aws_api_gateway_integration_response" "get_image_key_integration_response" {
+  rest_api_id = aws_api_gateway_rest_api.api.id
+  resource_id = aws_api_gateway_resource.image_key_resource.id
+  http_method = aws_api_gateway_method.get_image_key.http_method
+  status_code = aws_api_gateway_method_response.get_image_key_200.status_code
+
+  response_parameters = {
+    "method.response.header.Access-Control-Allow-Origin" = "'*'"
+  }
 }
 
 resource "aws_api_gateway_method" "options_images" {
@@ -369,8 +487,9 @@ resource "aws_api_gateway_integration_response" "options_integration_response" {
 
 resource "aws_api_gateway_deployment" "api_deployment" {
   depends_on = [
-    aws_api_gateway_method.get_images,
+    aws_api_gateway_method.get_image_key,
     aws_api_gateway_method.options_images,
+    aws_api_gateway_integration.get_image_key_integration,
     aws_api_gateway_integration.options_integration
   ]
 
@@ -379,8 +498,10 @@ resource "aws_api_gateway_deployment" "api_deployment" {
   triggers = {
     redeployment = sha1(jsonencode([
       aws_api_gateway_resource.images_resource.id,
-      aws_api_gateway_method.get_images.id,
+      aws_api_gateway_resource.image_key_resource.id,
+      aws_api_gateway_method.get_image_key.id,
       aws_api_gateway_method.options_images.id,
+      aws_api_gateway_integration.get_image_key_integration.id,
       aws_api_gateway_integration.options_integration.id,
     ]))
   }
@@ -391,11 +512,9 @@ resource "aws_api_gateway_deployment" "api_deployment" {
 }
 
 resource "aws_api_gateway_stage" "api_stage" {
-  deployment_id        = aws_api_gateway_deployment.api_deployment.id
-  rest_api_id          = aws_api_gateway_rest_api.api.id
-  stage_name           = "prod"
-  xray_tracing_enabled = true
-
+  deployment_id = aws_api_gateway_deployment.api_deployment.id
+  rest_api_id   = aws_api_gateway_rest_api.api.id
+  stage_name    = "prod"
 }
 
 # Outputs
@@ -429,4 +548,8 @@ output "cognito_client_id" {
 
 output "dynamodb_table_name" {
   value = aws_dynamodb_table.image_metadata.name
+}
+
+output "lambda_function_name" {
+  value = aws_lambda_function.image_resizer.function_name
 }
