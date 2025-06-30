@@ -1,3 +1,5 @@
+
+
 terraform {
   required_version = ">= 1.0"
   required_providers {
@@ -290,7 +292,7 @@ resource "aws_iam_role_policy_attachment" "lambda_basic" {
   role       = aws_iam_role.lambda_role.name
 }
 
-# Create placeholder Lambda code
+# Create placeholder Lambda code for image resizer
 data "archive_file" "lambda_zip" {
   type        = "zip"
   output_path = "image_resizer.zip"
@@ -302,6 +304,29 @@ def lambda_handler(event, context):
     return {
         'statusCode': 200,
         'body': json.dumps('Placeholder function - will be updated by CI/CD')
+    }
+EOF
+    filename = "lambda_function.py"
+  }
+}
+
+# Create placeholder API Lambda code
+data "archive_file" "api_lambda_zip" {
+  type        = "zip"
+  output_path = "api_lambda.zip"
+
+  source {
+    content  = <<EOF
+import json
+def lambda_handler(event, context):
+    return {
+        'statusCode': 200,
+        'headers': {
+            'Access-Control-Allow-Origin': '*',
+            'Access-Control-Allow-Headers': 'Content-Type',
+            'Access-Control-Allow-Methods': 'GET,POST,OPTIONS'
+        },
+        'body': json.dumps({'message': 'API placeholder'})
     }
 EOF
     filename = "lambda_function.py"
@@ -323,8 +348,75 @@ resource "aws_lambda_function" "image_resizer" {
     variables = {
       THUMBNAIL_BUCKET = aws_s3_bucket.thumbnails.bucket
       METADATA_TABLE   = aws_dynamodb_table.image_metadata.name
+      AWS_REGION       = var.aws_region
     }
   }
+}
+
+# Lambda Function for API
+resource "aws_lambda_function" "api_lambda" {
+  filename      = data.archive_file.api_lambda_zip.output_path
+  function_name = "${var.app_name}-api"
+  role          = aws_iam_role.api_lambda_role.arn
+  handler       = "lambda_function.lambda_handler"
+  runtime       = "python3.9"
+  timeout       = 30
+
+  source_code_hash = data.archive_file.api_lambda_zip.output_base64sha256
+
+  environment {
+    variables = {
+      METADATA_TABLE   = aws_dynamodb_table.image_metadata.name
+      THUMBNAIL_BUCKET = aws_s3_bucket.thumbnails.bucket
+      AWS_REGION       = var.aws_region
+    }
+  }
+}
+
+# IAM Role for API Lambda
+resource "aws_iam_role" "api_lambda_role" {
+  name = "${var.app_name}-api-lambda-role"
+
+  assume_role_policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      {
+        Action = "sts:AssumeRole"
+        Effect = "Allow"
+        Principal = {
+          Service = "lambda.amazonaws.com"
+        }
+      }
+    ]
+  })
+}
+
+resource "aws_iam_role_policy" "api_lambda_policy" {
+  name = "${var.app_name}-api-lambda-policy"
+  role = aws_iam_role.api_lambda_role.id
+
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      {
+        Effect = "Allow"
+        Action = [
+          "dynamodb:Query",
+          "dynamodb:GetItem",
+          "dynamodb:Scan"
+        ]
+        Resource = [
+          aws_dynamodb_table.image_metadata.arn,
+          "${aws_dynamodb_table.image_metadata.arn}/*"
+        ]
+      }
+    ]
+  })
+}
+
+resource "aws_iam_role_policy_attachment" "api_lambda_basic" {
+  policy_arn = "arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole"
+  role       = aws_iam_role.api_lambda_role.name
 }
 
 resource "aws_lambda_permission" "allow_s3" {
@@ -419,6 +511,107 @@ resource "aws_api_gateway_integration" "get_image_key_integration" {
   }
 }
 
+# API Lambda Integration
+resource "aws_api_gateway_resource" "api_resource" {
+  rest_api_id = aws_api_gateway_rest_api.api.id
+  parent_id   = aws_api_gateway_rest_api.api.root_resource_id
+  path_part   = "api"
+}
+
+resource "aws_api_gateway_resource" "user_images_resource" {
+  rest_api_id = aws_api_gateway_rest_api.api.id
+  parent_id   = aws_api_gateway_resource.api_resource.id
+  path_part   = "user"
+}
+
+resource "aws_api_gateway_resource" "user_id_resource" {
+  rest_api_id = aws_api_gateway_rest_api.api.id
+  parent_id   = aws_api_gateway_resource.user_images_resource.id
+  path_part   = "{user_id}"
+}
+
+resource "aws_api_gateway_resource" "user_images_endpoint" {
+  rest_api_id = aws_api_gateway_rest_api.api.id
+  parent_id   = aws_api_gateway_resource.user_id_resource.id
+  path_part   = "images"
+}
+
+# GET method for fetching user images
+resource "aws_api_gateway_method" "get_user_images" {
+  rest_api_id   = aws_api_gateway_rest_api.api.id
+  resource_id   = aws_api_gateway_resource.user_images_endpoint.id
+  http_method   = "GET"
+  authorization = "NONE"
+
+  request_parameters = {
+    "method.request.path.user_id" = true
+  }
+}
+
+resource "aws_api_gateway_integration" "get_user_images_integration" {
+  rest_api_id = aws_api_gateway_rest_api.api.id
+  resource_id = aws_api_gateway_resource.user_images_endpoint.id
+  http_method = aws_api_gateway_method.get_user_images.http_method
+
+  integration_http_method = "POST"
+  type                    = "AWS_PROXY"
+  uri                     = aws_lambda_function.api_lambda.invoke_arn
+}
+
+# OPTIONS method for CORS
+resource "aws_api_gateway_method" "options_user_images" {
+  rest_api_id   = aws_api_gateway_rest_api.api.id
+  resource_id   = aws_api_gateway_resource.user_images_endpoint.id
+  http_method   = "OPTIONS"
+  authorization = "NONE"
+}
+
+resource "aws_api_gateway_integration" "options_user_images_integration" {
+  rest_api_id = aws_api_gateway_rest_api.api.id
+  resource_id = aws_api_gateway_resource.user_images_endpoint.id
+  http_method = aws_api_gateway_method.options_user_images.http_method
+  type        = "MOCK"
+
+  request_templates = {
+    "application/json" = "{\"statusCode\": 200}"
+  }
+}
+
+resource "aws_api_gateway_method_response" "options_user_images_200" {
+  rest_api_id = aws_api_gateway_rest_api.api.id
+  resource_id = aws_api_gateway_resource.user_images_endpoint.id
+  http_method = aws_api_gateway_method.options_user_images.http_method
+  status_code = "200"
+
+  response_parameters = {
+    "method.response.header.Access-Control-Allow-Headers" = true
+    "method.response.header.Access-Control-Allow-Methods" = true
+    "method.response.header.Access-Control-Allow-Origin"  = true
+  }
+}
+
+resource "aws_api_gateway_integration_response" "options_user_images_integration_response" {
+  rest_api_id = aws_api_gateway_rest_api.api.id
+  resource_id = aws_api_gateway_resource.user_images_endpoint.id
+  http_method = aws_api_gateway_method.options_user_images.http_method
+  status_code = aws_api_gateway_method_response.options_user_images_200.status_code
+
+  response_parameters = {
+    "method.response.header.Access-Control-Allow-Headers" = "'Content-Type,X-Amz-Date,Authorization,X-Api-Key,X-Amz-Security-Token'"
+    "method.response.header.Access-Control-Allow-Methods" = "'GET,OPTIONS'"
+    "method.response.header.Access-Control-Allow-Origin"  = "'*'"
+  }
+}
+
+# Lambda permission for API Gateway
+resource "aws_lambda_permission" "allow_api_gateway" {
+  statement_id  = "AllowExecutionFromAPIGateway"
+  action        = "lambda:InvokeFunction"
+  function_name = aws_lambda_function.api_lambda.function_name
+  principal     = "apigateway.amazonaws.com"
+  source_arn    = "${aws_api_gateway_rest_api.api.execution_arn}/*/*"
+}
+
 resource "aws_api_gateway_method_response" "get_image_key_200" {
   rest_api_id = aws_api_gateway_rest_api.api.id
   resource_id = aws_api_gateway_resource.image_key_resource.id
@@ -490,8 +683,12 @@ resource "aws_api_gateway_deployment" "api_deployment" {
   depends_on = [
     aws_api_gateway_method.get_image_key,
     aws_api_gateway_method.options_images,
+    aws_api_gateway_method.get_user_images,
+    aws_api_gateway_method.options_user_images,
     aws_api_gateway_integration.get_image_key_integration,
-    aws_api_gateway_integration.options_integration
+    aws_api_gateway_integration.options_integration,
+    aws_api_gateway_integration.get_user_images_integration,
+    aws_api_gateway_integration.options_user_images_integration
   ]
 
   rest_api_id = aws_api_gateway_rest_api.api.id
@@ -500,10 +697,16 @@ resource "aws_api_gateway_deployment" "api_deployment" {
     redeployment = sha1(jsonencode([
       aws_api_gateway_resource.images_resource.id,
       aws_api_gateway_resource.image_key_resource.id,
+      aws_api_gateway_resource.api_resource.id,
+      aws_api_gateway_resource.user_images_endpoint.id,
       aws_api_gateway_method.get_image_key.id,
       aws_api_gateway_method.options_images.id,
+      aws_api_gateway_method.get_user_images.id,
+      aws_api_gateway_method.options_user_images.id,
       aws_api_gateway_integration.get_image_key_integration.id,
       aws_api_gateway_integration.options_integration.id,
+      aws_api_gateway_integration.get_user_images_integration.id,
+      aws_api_gateway_integration.options_user_images_integration.id,
     ]))
   }
 
@@ -553,4 +756,8 @@ output "dynamodb_table_name" {
 
 output "lambda_function_name" {
   value = aws_lambda_function.image_resizer.function_name
+}
+
+output "api_lambda_function_name" {
+  value = aws_lambda_function.api_lambda.function_name
 }

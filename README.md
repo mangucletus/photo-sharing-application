@@ -1,6 +1,6 @@
 # Photo Sharing Application
 
-**Live Application**: [Photo Sharing Application](https://photo-sharing-app-frontend-xxxx.s3-website-eu-west-1.amazonaws.com)
+**Live Application**: [Photo Sharing Application](http://photo-sharing-app-frontend-n1fhnpmx.s3-website-eu-west-1.amazonaws.com)
 
 A serverless photo sharing application built with AWS services, featuring automatic image processing, user authentication, and scalable infrastructure managed through Infrastructure as Code (IaC).
 
