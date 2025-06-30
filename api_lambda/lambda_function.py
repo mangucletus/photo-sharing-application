@@ -14,6 +14,8 @@ def decimal_default(obj):
     raise TypeError
 
 def lambda_handler(event, context):
+    print(f"Received event: {json.dumps(event)}")
+    
     try:
         # Enable CORS
         headers = {
@@ -50,13 +52,20 @@ def lambda_handler(event, context):
             except:
                 pass
         
+        print(f"Extracted user_id: {user_id}")
+        
         if not user_id:
             return {
                 'statusCode': 400,
                 'headers': headers,
                 'body': json.dumps({
                     'error': 'user_id is required',
-                    'message': 'Please provide user_id in query parameters, path, or request body'
+                    'message': 'Please provide user_id in query parameters, path, or request body',
+                    'received_event': {
+                        'queryStringParameters': query_params,
+                        'pathParameters': event.get('pathParameters'),
+                        'httpMethod': event['httpMethod']
+                    }
                 })
             }
         
@@ -72,6 +81,8 @@ def lambda_handler(event, context):
             
     except Exception as e:
         print(f"Error: {str(e)}")
+        import traceback
+        print(f"Full traceback: {traceback.format_exc()}")
         return {
             'statusCode': 500,
             'headers': {
@@ -88,17 +99,42 @@ def lambda_handler(event, context):
 def get_user_images(user_id, headers):
     """Fetch all images for a specific user"""
     try:
+        print(f"Querying DynamoDB for user_id: {user_id}")
+        
+        # First, let's try to scan all items to see what's in the table (for debugging)
+        try:
+            scan_response = table.scan(Limit=10)
+            print(f"Sample items in table: {scan_response.get('Items', [])}")
+        except Exception as scan_error:
+            print(f"Error scanning table: {scan_error}")
+        
         # Query DynamoDB for user's images using GSI
-        response = table.query(
-            IndexName='user-id-index',
-            KeyConditionExpression=Key('user_id').eq(user_id),
-            ScanIndexForward=False,  # Sort by sort key descending (newest first)
-            FilterExpression='attribute_exists(thumbnail_key) AND #status = :status',
-            ExpressionAttributeNames={'#status': 'status'},
-            ExpressionAttributeValues={':status': 'processed'}
-        )
+        try:
+            response = table.query(
+                IndexName='user-id-index',
+                KeyConditionExpression=Key('user_id').eq(user_id),
+                ScanIndexForward=False,  # Sort by sort key descending (newest first)
+                FilterExpression='attribute_exists(thumbnail_key) AND #status = :status',
+                ExpressionAttributeNames={'#status': 'status'},
+                ExpressionAttributeValues={':status': 'processed'}
+            )
+            print(f"Query response: {response}")
+        except Exception as query_error:
+            print(f"GSI query failed: {query_error}")
+            # Try a scan as fallback
+            print(f"Trying scan as fallback...")
+            response = table.scan(
+                FilterExpression='user_id = :user_id AND attribute_exists(thumbnail_key) AND #status = :status',
+                ExpressionAttributeNames={'#status': 'status'},
+                ExpressionAttributeValues={
+                    ':user_id': user_id,
+                    ':status': 'processed'
+                }
+            )
+            print(f"Scan response: {response}")
         
         images = response['Items']
+        print(f"Found {len(images)} images for user {user_id}")
         
         # Process images to add thumbnail URLs and format data
         processed_images = []
@@ -107,6 +143,8 @@ def get_user_images(user_id, headers):
         region = os.environ.get('AWS_DEFAULT_REGION', 'eu-west-1')
         
         for image in images:
+            print(f"Processing image: {image}")
+            
             thumbnail_url = f"https://{thumbnail_bucket}.s3.{region}.amazonaws.com/{image['thumbnail_key']}"
             
             processed_image = {
@@ -126,24 +164,35 @@ def get_user_images(user_id, headers):
             }
             
             processed_images.append(processed_image)
+            print(f"Processed image: {processed_image}")
+        
+        # Sort by upload time (newest first)
+        processed_images.sort(key=lambda x: x['uploadTime'], reverse=True)
+        
+        result = {
+            'images': processed_images,
+            'count': len(processed_images),
+            'user_id': user_id
+        }
+        
+        print(f"Returning result: {result}")
         
         return {
             'statusCode': 200,
             'headers': headers,
-            'body': json.dumps({
-                'images': processed_images,
-                'count': len(processed_images),
-                'user_id': user_id
-            }, default=decimal_default)
+            'body': json.dumps(result, default=decimal_default)
         }
         
     except Exception as e:
         print(f"Error fetching images for user {user_id}: {str(e)}")
+        import traceback
+        print(f"Full traceback: {traceback.format_exc()}")
         return {
             'statusCode': 500,
             'headers': headers,
             'body': json.dumps({
                 'error': 'Failed to fetch images',
-                'message': str(e)
+                'message': str(e),
+                'user_id': user_id
             })
         }

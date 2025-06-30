@@ -45,6 +45,45 @@ def lambda_handler(event, context):
                 content_type = response.get('ContentType', 'image/jpeg')
                 
                 print(f"Downloaded image: {len(image_content)} bytes")
+                print(f"S3 Metadata received: {s3_metadata}")
+                
+                # Extract user ID from metadata with various possible keys
+                user_id = None
+                possible_user_keys = ['user-id', 'userid', 'user_id', 'User-Id', 'UserId']
+                for key in possible_user_keys:
+                    if key in s3_metadata:
+                        user_id = s3_metadata[key]
+                        print(f"Found user_id '{user_id}' with key '{key}'")
+                        break
+                
+                # If no user_id found in metadata, try to extract from object key or use unknown
+                if not user_id:
+                    print("No user_id found in metadata, using 'unknown'")
+                    user_id = 'unknown'
+                
+                # Extract other metadata
+                original_name = None
+                upload_time = None
+                
+                # Try different possible keys for original name
+                possible_name_keys = ['original-name', 'originalname', 'original_name', 'Original-Name', 'OriginalName']
+                for key in possible_name_keys:
+                    if key in s3_metadata:
+                        original_name = s3_metadata[key]
+                        break
+                
+                if not original_name:
+                    original_name = source_key
+                
+                # Try different possible keys for upload time
+                possible_time_keys = ['upload-time', 'uploadtime', 'upload_time', 'Upload-Time', 'UploadTime']
+                for key in possible_time_keys:
+                    if key in s3_metadata:
+                        upload_time = s3_metadata[key]
+                        break
+                
+                if not upload_time:
+                    upload_time = datetime.utcnow().isoformat()
                 
                 # Open and process image
                 image = Image.open(io.BytesIO(image_content))
@@ -75,7 +114,8 @@ def lambda_handler(event, context):
                     Metadata={
                         'original-key': source_key,
                         'original-bucket': source_bucket,
-                        'processed-time': datetime.utcnow().isoformat()
+                        'processed-time': datetime.utcnow().isoformat(),
+                        'user-id': user_id
                     }
                 )
                 
@@ -85,63 +125,67 @@ def lambda_handler(event, context):
                 original_size = len(image_content)
                 thumbnail_size = len(buffer.getvalue())
                 
-                # Extract user ID from metadata or derive from key
-                user_id = s3_metadata.get('userid', 'unknown')
-                original_name = s3_metadata.get('originalname', source_key)
-                upload_time = s3_metadata.get('uploadtime', datetime.utcnow().isoformat())
-                
                 # Store metadata in DynamoDB
-                table.put_item(
-                    Item={
-                        'image_id': image_id,
-                        'user_id': user_id,
-                        'original_key': source_key,
-                        'thumbnail_key': target_key,
-                        'original_bucket': source_bucket,
-                        'thumbnail_bucket': THUMBNAIL_BUCKET,
-                        'original_name': original_name,
-                        'original_size': original_size,
-                        'thumbnail_size': thumbnail_size,
-                        'original_width': original_width,
-                        'original_height': original_height,
-                        'thumbnail_width': thumbnail_width,
-                        'thumbnail_height': thumbnail_height,
-                        'upload_time': upload_time,
-                        'processed_time': datetime.utcnow().isoformat(),
-                        'content_type': content_type,
-                        'status': 'processed'
-                    }
-                )
+                dynamodb_item = {
+                    'image_id': image_id,
+                    'user_id': user_id,
+                    'original_key': source_key,
+                    'thumbnail_key': target_key,
+                    'original_bucket': source_bucket,
+                    'thumbnail_bucket': THUMBNAIL_BUCKET,
+                    'original_name': original_name,
+                    'original_size': original_size,
+                    'thumbnail_size': thumbnail_size,
+                    'original_width': original_width,
+                    'original_height': original_height,
+                    'thumbnail_width': thumbnail_width,
+                    'thumbnail_height': thumbnail_height,
+                    'upload_time': upload_time,
+                    'processed_time': datetime.utcnow().isoformat(),
+                    'content_type': content_type,
+                    'status': 'processed'
+                }
+                
+                print(f"Storing DynamoDB item: {dynamodb_item}")
+                
+                table.put_item(Item=dynamodb_item)
                 
                 print(f"Stored metadata for image: {image_id}")
                 
                 # Create public URL for thumbnail
-                # AWS_REGION is automatically available in Lambda context
+                # AWS_DEFAULT_REGION is automatically available in Lambda context
                 region = os.environ.get('AWS_DEFAULT_REGION', 'eu-west-1')
                 thumbnail_url = f"https://{THUMBNAIL_BUCKET}.s3.{region}.amazonaws.com/{target_key}"
                 
                 print(f"Successfully processed {source_key} -> {target_key}")
                 print(f"Thumbnail URL: {thumbnail_url}")
+                print(f"User ID: {user_id}")
                 
             except Exception as e:
                 print(f"Error processing {source_key}: {str(e)}")
+                import traceback
+                print(f"Full traceback: {traceback.format_exc()}")
                 
                 # Store error metadata
                 try:
+                    error_user_id = user_id if 'user_id' in locals() else 'unknown'
+                    error_upload_time = upload_time if 'upload_time' in locals() else datetime.utcnow().isoformat()
+                    
                     table.put_item(
                         Item={
                             'image_id': str(uuid.uuid4()),
-                            'user_id': s3_metadata.get('userid', 'unknown'),
+                            'user_id': error_user_id,
                             'original_key': source_key,
                             'original_bucket': source_bucket,
-                            'upload_time': s3_metadata.get('uploadtime', datetime.utcnow().isoformat()),
+                            'upload_time': error_upload_time,
                             'processed_time': datetime.utcnow().isoformat(),
                             'status': 'error',
                             'error_message': str(e)
                         }
                     )
-                except:
-                    pass  # Don't fail if we can't store error metadata
+                    print(f"Stored error metadata for failed processing")
+                except Exception as db_error:
+                    print(f"Failed to store error metadata: {db_error}")
                 
                 continue
         
@@ -155,6 +199,8 @@ def lambda_handler(event, context):
         
     except Exception as e:
         print(f"Error in lambda_handler: {str(e)}")
+        import traceback
+        print(f"Full traceback: {traceback.format_exc()}")
         return {
             'statusCode': 500,
             'body': json.dumps({

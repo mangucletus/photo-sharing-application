@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { Amplify } from 'aws-amplify';
 import { Authenticator } from '@aws-amplify/ui-react';
 import { uploadData } from 'aws-amplify/storage';
+import { fetchAuthSession } from 'aws-amplify/auth';
 import '@aws-amplify/ui-react/styles.css';
 import './App.css';
 
@@ -57,8 +58,22 @@ function PhotoSharingApp({ user, signOut }) {
   const [message, setMessage] = useState('');
   const [messageType, setMessageType] = useState('');
   const [uploadProgress, setUploadProgress] = useState(0);
+  const [userEmail, setUserEmail] = useState('');
 
   useEffect(() => {
+    // Get user email from auth session
+    const getUserEmail = async () => {
+      try {
+        const session = await fetchAuthSession();
+        const email = session.tokens?.idToken?.payload?.email || user.username;
+        setUserEmail(email);
+      } catch (error) {
+        console.error('Error getting user email:', error);
+        setUserEmail(user.username);
+      }
+    };
+
+    getUserEmail();
     loadImages();
     // Poll for new images every 10 seconds
     const interval = setInterval(loadImages, 10000);
@@ -93,9 +108,11 @@ function PhotoSharingApp({ user, signOut }) {
           if (response.ok) {
             const data = await response.json();
             console.log('API Response:', data);
-            setImages(data.images || []);
-            setLoading(false);
-            return;
+            if (data.images && Array.isArray(data.images)) {
+              setImages(data.images);
+              setLoading(false);
+              return;
+            }
           } else {
             console.warn('API request failed:', response.status, response.statusText);
           }
@@ -113,18 +130,6 @@ function PhotoSharingApp({ user, signOut }) {
       console.error('Error loading images:', error);
       setLoading(false);
       showMessage('Error loading images', 'error');
-    }
-  };
-
-  const checkS3Upload = async (bucketName, fileName) => {
-    try {
-      // Simple check by trying to access the file via S3 REST API
-      const s3Url = `https://${bucketName}.s3.${process.env.REACT_APP_AWS_REGION}.amazonaws.com/${fileName}`;
-      const response = await fetch(s3Url, { method: 'HEAD' });
-      return response.ok;
-    } catch (error) {
-      console.error('Error checking S3 upload:', error);
-      return false;
     }
   };
 
@@ -178,13 +183,13 @@ function PhotoSharingApp({ user, signOut }) {
         options: {
           contentType: file.type,
           metadata: {
-            userId: user.username,
-            uploadTime: new Date().toISOString(),
-            originalName: file.name,
+            'user-id': user.username, // Use 'user-id' instead of 'userId'
+            'upload-time': new Date().toISOString(),
+            'original-name': file.name,
           },
           onProgress: ({ transferredBytes, totalBytes }) => {
             if (totalBytes) {
-              const progress = Math.round((transferredBytes / totalBytes) * 75) + 25; // 25-100%
+              const progress = Math.round((transferredBytes / totalBytes) * 90) + 10; // 10-100%
               setUploadProgress(progress);
             }
           },
@@ -193,74 +198,72 @@ function PhotoSharingApp({ user, signOut }) {
 
       console.log('Upload result:', result);
       
-      // Verify the upload by checking if file exists in S3
-      showMessage('Verifying upload...', 'info');
-      setUploadProgress(85);
+      // Upload successful - no need to verify since uploadData will throw if it fails
+      setUploadProgress(100);
+      showMessage('Image uploaded successfully! Processing thumbnail...', 'success');
       
-      // Wait a moment for S3 to propagate
-      await new Promise(resolve => setTimeout(resolve, 2000));
+      // Add image to state immediately for better UX
+      const newImage = {
+        id: fileName,
+        originalKey: fileName,
+        thumbnailUrl: `https://${process.env.REACT_APP_THUMBNAILS_BUCKET}.s3.${process.env.REACT_APP_AWS_REGION}.amazonaws.com/thumb-${fileName}`,
+        uploadTime: new Date().toISOString(),
+        originalName: file.name,
+        size: file.size,
+        processing: true,
+        realUpload: true // Mark as real upload
+      };
       
-      const uploadSuccess = await checkS3Upload(process.env.REACT_APP_IMAGES_BUCKET, fileName);
+      setImages(prev => [newImage, ...prev]);
       
-      if (uploadSuccess) {
-        console.log('Upload verified successfully');
-        setUploadProgress(100);
-        showMessage('Image uploaded successfully! Processing thumbnail...', 'success');
+      // Store in localStorage as backup
+      const updatedImages = [newImage, ...images];
+      localStorage.setItem(`user_images_${user.username}`, JSON.stringify(updatedImages));
+      
+      // Check for thumbnail processing every 3 seconds for up to 30 seconds
+      let attempts = 0;
+      const maxAttempts = 10;
+      const checkThumbnail = async () => {
+        attempts++;
         
-        // Add image to state immediately for better UX
-        const newImage = {
-          id: fileName,
-          originalKey: fileName,
-          thumbnailUrl: `https://${process.env.REACT_APP_THUMBNAILS_BUCKET}.s3.${process.env.REACT_APP_AWS_REGION}.amazonaws.com/thumb-${fileName}`,
-          uploadTime: new Date().toISOString(),
-          originalName: file.name,
-          size: file.size,
-          processing: true,
-          realUpload: true // Mark as real upload
-        };
-        
-        setImages(prev => [newImage, ...prev]);
-        
-        // Store in localStorage as backup
-        const updatedImages = [newImage, ...images];
-        localStorage.setItem(`user_images_${user.username}`, JSON.stringify(updatedImages));
-        
-        // Check for thumbnail processing every 3 seconds for up to 30 seconds
-        let attempts = 0;
-        const maxAttempts = 10;
-        const checkThumbnail = async () => {
-          attempts++;
-          const thumbnailExists = await checkS3Upload(
-            process.env.REACT_APP_THUMBNAILS_BUCKET, 
-            `thumb-${fileName}`
-          );
-          
-          if (thumbnailExists) {
-            console.log('Thumbnail processed successfully');
-            setImages(prev => prev.map(img => 
-              img.id === fileName ? { ...img, processing: false } : img
-            ));
-            showMessage('Thumbnail processed successfully!', 'success');
-            
-            // Reload images from API to get latest data
-            setTimeout(loadImages, 2000);
-          } else if (attempts < maxAttempts) {
-            setTimeout(checkThumbnail, 3000);
-          } else {
-            console.warn('Thumbnail processing timed out');
-            setImages(prev => prev.map(img => 
-              img.id === fileName ? { ...img, processing: false, error: 'Processing timeout' } : img
-            ));
-            showMessage('Image uploaded but thumbnail processing took longer than expected', 'warning');
+        // Instead of checking S3 directly, check via API or wait for processing
+        try {
+          const apiUrl = process.env.REACT_APP_API_GATEWAY_URL;
+          if (apiUrl) {
+            const response = await fetch(`${apiUrl}/api/user/${encodeURIComponent(user.username)}/images`);
+            if (response.ok) {
+              const data = await response.json();
+              const processedImage = data.images?.find(img => img.originalKey === fileName);
+              
+              if (processedImage && !processedImage.processing) {
+                console.log('Thumbnail processed successfully');
+                setImages(prev => prev.map(img => 
+                  img.id === fileName ? { ...processedImage, processing: false, realUpload: true } : img
+                ));
+                showMessage('Thumbnail processed successfully!', 'success');
+                return;
+              }
+            }
           }
-        };
+        } catch (error) {
+          console.log('API check failed, continuing to wait...');
+        }
         
-        // Start checking for thumbnail after 5 seconds
-        setTimeout(checkThumbnail, 5000);
-        
-      } else {
-        throw new Error('Upload verification failed - file not found in S3');
-      }
+        if (attempts < maxAttempts) {
+          setTimeout(checkThumbnail, 3000);
+        } else {
+          console.warn('Thumbnail processing timed out');
+          setImages(prev => prev.map(img => 
+            img.id === fileName ? { ...img, processing: false, error: 'Processing timeout' } : img
+          ));
+          showMessage('Image uploaded but thumbnail processing took longer than expected', 'warning');
+          // Reload images from API to get latest data
+          setTimeout(loadImages, 2000);
+        }
+      };
+      
+      // Start checking for thumbnail after 5 seconds
+      setTimeout(checkThumbnail, 5000);
       
     } catch (error) {
       console.error('Upload error:', error);
@@ -346,6 +349,7 @@ function PhotoSharingApp({ user, signOut }) {
           User Pool: {process.env.REACT_APP_USER_POOL_ID || 'Not set'}<br/>
           Identity Pool: {process.env.REACT_APP_IDENTITY_POOL_ID || 'Not set'}<br/>
           User: {user?.username}<br/>
+          Email: {userEmail}<br/>
           Images Count: {images.length}
         </div>
       );
@@ -362,7 +366,7 @@ function PhotoSharingApp({ user, signOut }) {
             Photo Sharing
           </h1>
           <div className="user-info">
-            <span className="welcome-text">Welcome, {user.username}</span>
+            <span className="welcome-text">Welcome, {userEmail}</span>
             <button onClick={signOut} className="sign-out-btn">
               Sign Out
             </button>
